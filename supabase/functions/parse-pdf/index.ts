@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import * as pdfjs from "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,7 +6,6 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -53,7 +51,7 @@ serve(async (req) => {
 
     // Handle text files directly
     if (fileType === "text/plain" || fileName.endsWith(".txt")) {
-      const text = new TextDecoder().decode(fileData);
+      const text = new TextDecoder("utf-8").decode(fileData);
       console.log(`Text file extracted: ${text.length} characters`);
       return new Response(
         JSON.stringify({ extractedText: text, fileName }),
@@ -61,73 +59,83 @@ serve(async (req) => {
       );
     }
 
-    // For PDFs, use pdf.js
+    // For PDFs, use unpdf library (supports Unicode/Hindi)
     if (fileType === "application/pdf" || fileName.endsWith(".pdf")) {
       try {
-        // Load PDF document
-        const loadingTask = pdfjs.getDocument({ data: fileData });
-        const pdf = await loadingTask.promise;
+        const { getDocumentProxy } = await import("https://esm.sh/unpdf@0.11.0");
         
+        const pdf = await getDocumentProxy(fileData);
         console.log(`PDF loaded: ${pdf.numPages} pages`);
         
         const textParts: string[] = [];
+        const maxPages = Math.min(pdf.numPages, 30);
         
-        // Extract text from each page (limit to first 20 pages for performance)
-        const maxPages = Math.min(pdf.numPages, 20);
         for (let i = 1; i <= maxPages; i++) {
           const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
+          const textContent = await page.getTextContent({
+            includeMarkedContent: false,
+          });
           
-          const pageText = textContent.items
-            .map((item: any) => item.str)
-            .join(" ");
+          // Extract text with proper Unicode handling
+          let pageText = "";
+          let lastY = -1;
+          
+          for (const item of textContent.items) {
+            if ("str" in item && item.str) {
+              // Add newline when Y position changes significantly (new line)
+              if (lastY !== -1 && "transform" in item) {
+                const currentY = (item as any).transform?.[5];
+                if (currentY !== undefined && Math.abs(currentY - lastY) > 5) {
+                  pageText += "\n";
+                }
+                lastY = currentY;
+              } else if ("transform" in item) {
+                lastY = (item as any).transform?.[5] || lastY;
+              }
+              
+              pageText += item.str;
+            }
+          }
           
           if (pageText.trim()) {
-            textParts.push(pageText);
+            textParts.push(pageText.trim());
           }
         }
         
         let extractedText = textParts.join("\n\n");
         
-        // Clean up the text
+        // Format for syllabus parsing
         extractedText = extractedText
-          .replace(/\s+/g, ' ')
-          .replace(/([a-z])([A-Z])/g, '$1 $2')
           .replace(/Chapter/gi, '\nChapter')
           .replace(/Unit/gi, '\nUnit')
-          .trim();
-        
-        // Split into lines and clean
-        const lines = extractedText
+          .replace(/अध्याय/g, '\nअध्याय')
+          .replace(/इकाई/g, '\nइकाई')
           .split('\n')
           .map(line => line.trim())
-          .filter(line => line.length > 0);
-        
-        extractedText = lines.join('\n');
-        
-        if (!extractedText || extractedText.length < 10) {
-          console.log("PDF extraction returned minimal text, may be image-based");
-          return new Response(
-            JSON.stringify({ 
-              error: "PDF could not be parsed. This may be a scanned/image-based PDF. Please copy and paste the text manually.",
-              extractedText: ""
-            }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
+          .filter(line => line.length > 0)
+          .join('\n');
 
         console.log(`PDF extracted: ${extractedText.length} characters`);
+        
+        // Return even if empty - let frontend handle it
         return new Response(
-          JSON.stringify({ extractedText, fileName }),
+          JSON.stringify({ 
+            extractedText: extractedText || "", 
+            fileName,
+            isEmpty: !extractedText || extractedText.length < 10
+          }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
         
       } catch (pdfError) {
-        console.error("PDF.js parsing error:", pdfError);
+        console.error("PDF parsing error:", pdfError);
+        // Don't throw - return empty with flag
         return new Response(
           JSON.stringify({ 
-            error: "PDF could not be parsed. Try a different file or paste text manually.",
-            extractedText: ""
+            extractedText: "",
+            fileName,
+            isEmpty: true,
+            parseError: true
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -143,10 +151,11 @@ serve(async (req) => {
     console.error("Error parsing file:", error);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : "Failed to parse file",
-        extractedText: ""
+        extractedText: "",
+        isEmpty: true,
+        parseError: true
       }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

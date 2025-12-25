@@ -55,36 +55,35 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
 
       if (fnError) throw fnError;
 
-      if (data?.error && !data?.extractedText) {
-        setError(data.error);
+      // Check if extraction was empty or failed
+      if (data?.isEmpty || data?.parseError || !data?.extractedText) {
+        // Pre-fill with warning message so user can paste manually
+        const warningText = `⚠️ Text extraction failed — please paste your syllabus manually below.\n\nExample format:\n\nHindi:\nChapter 1 – अपठित गद्यांश\n- गद्यांश पढ़ना\n- प्रश्न उत्तर\n\nEnglish:\nChapter 1 – A Letter to God\n- Reading Comprehension\n- Vocabulary`;
+        onChange(warningText);
         toast({
-          variant: 'destructive',
-          title: 'PDF could not be read',
-          description: 'Try uploading a text-based PDF or paste text manually.',
+          title: 'PDF text extraction limited',
+          description: 'Please edit the text area to add your syllabus manually.',
         });
         return;
       }
 
-      if (data?.extractedText) {
-        onChange(data.extractedText);
-        toast({
-          title: 'Syllabus uploaded successfully',
-          description: 'Review and edit the extracted text below.',
-        });
-      } else {
-        setError('❌ PDF could not be read. Try uploading a text-based PDF');
-      }
+      // Success - extracted text
+      onChange(data.extractedText);
+      toast({
+        title: 'Syllabus uploaded successfully',
+        description: 'Review and edit the extracted text below.',
+      });
     } catch (err) {
       console.error('PDF upload error:', err);
-      setError('❌ PDF could not be read. Try uploading a text-based PDF');
+      // Don't block - allow user to paste manually
+      const warningText = `⚠️ Text extraction failed — please paste your syllabus manually below.\n\nExample format:\n\nHindi:\nChapter 1 – अपठित गद्यांश\n- गद्यांश पढ़ना\n- प्रश्न उत्तर\n\nEnglish:\nChapter 1 – A Letter to God\n- Reading Comprehension\n- Vocabulary`;
+      onChange(warningText);
       toast({
-        variant: 'destructive',
-        title: 'Upload failed',
-        description: 'Please try a different file or paste text manually.',
+        title: 'PDF could not be read',
+        description: 'Please paste your syllabus text manually.',
       });
     } finally {
       setIsUploading(false);
-      // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
