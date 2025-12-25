@@ -344,7 +344,8 @@ const Quiz = () => {
       });
 
       console.log('Navigating to /plan');
-      navigate('/plan', { replace: true });
+      // Use state to signal Plan page to refresh data
+      navigate('/plan', { state: { refreshKey: Date.now() } });
     } catch (error) {
       console.error('Error saving results:', error);
       toast({
