@@ -110,6 +110,7 @@ export type Database = {
           current_streak: number | null
           daily_study_hours: number | null
           email: string
+          exam_date: string | null
           id: string
           last_study_date: string | null
           name: string
@@ -124,6 +125,7 @@ export type Database = {
           current_streak?: number | null
           daily_study_hours?: number | null
           email: string
+          exam_date?: string | null
           id?: string
           last_study_date?: string | null
           name: string
@@ -138,6 +140,7 @@ export type Database = {
           current_streak?: number | null
           daily_study_hours?: number | null
           email?: string
+          exam_date?: string | null
           id?: string
           last_study_date?: string | null
           name?: string

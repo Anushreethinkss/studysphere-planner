@@ -8,6 +8,8 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
+import Plan from "./pages/Plan";
+import Syllabus from "./pages/Syllabus";
 import Progress from "./pages/Progress";
 import Mistakes from "./pages/Mistakes";
 import Calendar from "./pages/Calendar";
@@ -51,9 +53,21 @@ const AppRoutes = () => {
       />
       <Route 
         path="/dashboard" 
+        element={<Navigate to="/plan" replace />} 
+      />
+      <Route 
+        path="/plan" 
         element={
           <ProtectedRoute>
-            <Dashboard />
+            <Plan />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/syllabus" 
+        element={
+          <ProtectedRoute>
+            <Syllabus />
           </ProtectedRoute>
         } 
       />
