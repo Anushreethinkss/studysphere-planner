@@ -35,6 +35,12 @@
     --input: 230 30% 85%;
     --ring: 230 62% 27%;
 
+    /* Status colors */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
     --radius: 1rem;
 
     /* Custom colors */
@@ -99,6 +105,12 @@
     --border: 230 40% 25%;
     --input: 230 40% 20%;
     --ring: 9 53% 65%;
+
+    /* Status colors - dark mode */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
 
     --sidebar-background: 229 56% 12%;
     --sidebar-foreground: 30 52% 87%;
