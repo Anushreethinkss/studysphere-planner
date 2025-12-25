@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Onboarding from "./pages/Onboarding";
+import SyllabusPreview from "./pages/SyllabusPreview";
 import Dashboard from "./pages/Dashboard";
 import Plan from "./pages/Plan";
 import Syllabus from "./pages/Syllabus";
@@ -50,6 +51,14 @@ const AppRoutes = () => {
             <Onboarding />
           </ProtectedRoute>
         } 
+      />
+      <Route 
+        path="/syllabus/preview" 
+        element={
+          <ProtectedRoute>
+            <SyllabusPreview />
+          </ProtectedRoute>
+        }
       />
       <Route 
         path="/dashboard" 

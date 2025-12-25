@@ -1,19 +1,16 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { useToast } from '@/hooks/use-toast';
+import SyllabusUploader from '@/components/SyllabusUploader';
 import { 
   School, Trophy, Plus, X, Clock, FileText, 
-  ChevronRight, ChevronLeft, Sparkles, Loader2, BookOpen, CalendarDays
+  ChevronRight, ChevronLeft, BookOpen, CalendarDays
 } from 'lucide-react';
 
 type PrepType = 'school' | 'competitive';
@@ -21,13 +18,6 @@ type PrepType = 'school' | 'competitive';
 interface Subject {
   name: string;
   color: string;
-}
-
-interface ParsedSyllabus {
-  chapters: {
-    name: string;
-    topics: string[];
-  }[];
 }
 
 const SUBJECT_COLORS = [
@@ -43,11 +33,8 @@ const Onboarding = () => {
   const [dailyHours, setDailyHours] = useState(2);
   const [examDate, setExamDate] = useState('');
   const [syllabusText, setSyllabusText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   const totalSteps = 5;
   const progress = (step / totalSteps) * 100;
@@ -66,152 +53,6 @@ const Onboarding = () => {
     setSubjects(subjects.filter(s => s.name !== name));
   };
 
-  const parseSyllabus = (text: string, subjectName: string): ParsedSyllabus => {
-    const lines = text.split('\n').filter(line => line.trim());
-    const chapters: ParsedSyllabus['chapters'] = [];
-    let currentChapter: { name: string; topics: string[] } | null = null;
-
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      
-      // Check if it's a chapter line (starts with "Chapter", number, or is a header)
-      if (/^(chapter|unit|\d+\.|\d+\))/i.test(trimmed) || 
-          (trimmed === trimmed.toUpperCase() && trimmed.length > 3 && !trimmed.startsWith('-'))) {
-        if (currentChapter && currentChapter.topics.length > 0) {
-          chapters.push(currentChapter);
-        }
-        const chapterName = trimmed
-          .replace(/^(chapter|unit)\s*\d*[:.)\s]*/i, '')
-          .replace(/^\d+[.:)\s]+/, '')
-          .trim();
-        currentChapter = { name: chapterName || `Chapter ${chapters.length + 1}`, topics: [] };
-      } else if (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*')) {
-        // It's a topic (bullet point)
-        const topicName = trimmed.replace(/^[-•*\s]+/, '').trim();
-        if (topicName) {
-          if (currentChapter) {
-            currentChapter.topics.push(topicName);
-          } else {
-            // Create a default chapter if none exists
-            currentChapter = { name: `${subjectName} - Part 1`, topics: [topicName] };
-          }
-        }
-      } else if (currentChapter && trimmed && !trimmed.match(/^(chapter|unit)/i)) {
-        // Other lines treated as topics
-        currentChapter.topics.push(trimmed.replace(/^[-•*\d.)\s]+/, '').trim());
-      }
-    });
-
-    if (currentChapter && currentChapter.topics.length > 0) {
-      chapters.push(currentChapter);
-    }
-
-    // If no chapters detected, create default structure
-    if (chapters.length === 0 && lines.length > 0) {
-      const allTopics = lines
-        .filter(l => l.trim())
-        .map(l => l.replace(/^[-•*\d.)\s]+/, '').trim())
-        .filter(l => l.length > 0);
-      
-      // Split topics into chunks of 5 for multiple chapters
-      const chunkSize = 5;
-      for (let i = 0; i < allTopics.length; i += chunkSize) {
-        chapters.push({
-          name: `${subjectName} - Part ${Math.floor(i / chunkSize) + 1}`,
-          topics: allTopics.slice(i, i + chunkSize)
-        });
-      }
-    }
-
-    return { chapters };
-  };
-
-  const generateStudyPlan = async () => {
-    if (!user) return;
-    
-    setIsLoading(true);
-    
-    try {
-      // Update profile with exam date
-      await supabase
-        .from('profiles')
-        .update({
-          prep_type: prepType,
-          board: board || null,
-          daily_study_hours: dailyHours,
-          exam_date: examDate || null,
-          onboarding_completed: true,
-        })
-        .eq('user_id', user.id);
-
-      // Create subjects, chapters, topics
-      for (const subject of subjects) {
-        const { data: subjectData, error: subjectError } = await supabase
-          .from('subjects')
-          .insert({
-            user_id: user.id,
-            name: subject.name,
-            color: subject.color,
-          })
-          .select()
-          .single();
-
-        if (subjectError) throw subjectError;
-
-        // Parse syllabus for this subject
-        const parsed = parseSyllabus(syllabusText, subject.name);
-        
-        // Create chapters and topics
-        for (let chapterIndex = 0; chapterIndex < parsed.chapters.length; chapterIndex++) {
-          const chapter = parsed.chapters[chapterIndex];
-          
-          const { data: chapterData, error: chapterError } = await supabase
-            .from('chapters')
-            .insert({
-              user_id: user.id,
-              subject_id: subjectData.id,
-              name: chapter.name,
-              order_index: chapterIndex,
-            })
-            .select()
-            .single();
-
-          if (chapterError) throw chapterError;
-
-          // Create topics
-          const topicsToInsert = chapter.topics.map((topic, topicIndex) => ({
-            user_id: user.id,
-            chapter_id: chapterData.id,
-            name: topic,
-            order_index: topicIndex,
-            status: 'pending' as const,
-          }));
-
-          if (topicsToInsert.length > 0) {
-            await supabase
-              .from('topics')
-              .insert(topicsToInsert);
-          }
-        }
-      }
-
-      toast({
-        title: 'Study plan created!',
-        description: 'Your personalized study schedule is ready.',
-      });
-      
-      navigate('/plan');
-    } catch (error) {
-      console.error('Error creating study plan:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to create study plan. Please try again.',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const getMinDate = () => {
     const tomorrow = new Date();
@@ -415,36 +256,11 @@ const Onboarding = () => {
                 Add your syllabus
               </CardTitle>
               <CardDescription>
-                Paste your syllabus content below. Use "Chapter" for chapter headings and "-" for topics.
+                Upload a PDF or TXT file, or paste your syllabus content directly.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <Textarea
-                placeholder={`Example format:
-
-Chapter 1: Introduction to Physics
-- Motion and Rest
-- Distance and Displacement
-- Speed and Velocity
-
-Chapter 2: Force and Laws of Motion
-- Newton's First Law
-- Newton's Second Law
-- Newton's Third Law
-
-Chapter 3: Work and Energy
-- Work done by a force
-- Kinetic Energy
-- Potential Energy`}
-                value={syllabusText}
-                onChange={(e) => setSyllabusText(e.target.value)}
-                className="min-h-[300px] font-mono text-sm"
-              />
-              
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Sparkles className="w-4 h-4 text-accent" />
-                <span>AI will automatically parse chapters and topics</span>
-              </div>
+            <CardContent>
+              <SyllabusUploader value={syllabusText} onChange={setSyllabusText} />
             </CardContent>
           </Card>
         )}
@@ -476,20 +292,22 @@ Chapter 3: Work and Energy
           ) : (
             <Button
               variant="hero"
-              onClick={generateStudyPlan}
-              disabled={isLoading || !syllabusText.trim()}
+              onClick={() => {
+                navigate('/syllabus/preview', {
+                  state: {
+                    extractedText: syllabusText,
+                    subjects,
+                    examDate,
+                    dailyHours,
+                    prepType,
+                    board: board || null,
+                  }
+                });
+              }}
+              disabled={!syllabusText.trim()}
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  Creating plan...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  Generate Study Plan
-                </>
-              )}
+              <ChevronRight className="w-4 h-4 mr-2" />
+              Preview & Save
             </Button>
           )}
         </div>
