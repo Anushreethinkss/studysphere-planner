@@ -237,6 +237,7 @@ export type Database = {
           duration_minutes: number | null
           id: string
           is_completed: boolean | null
+          require_quiz: boolean | null
           scheduled_date: string
           task_type: string | null
           topic_id: string
@@ -248,6 +249,7 @@ export type Database = {
           duration_minutes?: number | null
           id?: string
           is_completed?: boolean | null
+          require_quiz?: boolean | null
           scheduled_date: string
           task_type?: string | null
           topic_id: string
@@ -259,6 +261,7 @@ export type Database = {
           duration_minutes?: number | null
           id?: string
           is_completed?: boolean | null
+          require_quiz?: boolean | null
           scheduled_date?: string
           task_type?: string | null
           topic_id?: string
