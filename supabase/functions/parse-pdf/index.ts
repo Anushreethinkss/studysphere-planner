@@ -5,6 +5,29 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Detect garbage text (repeated characters, encoding issues)
+function detectGarbageText(text: string): boolean {
+  if (!text || text.length < 10) return true;
+  
+  // Check for repeated character patterns (like "nnnnnn" or "??????")
+  const repeatedPattern = /(.)\1{5,}/g;
+  const matches = text.match(repeatedPattern) || [];
+  const repeatedChars = matches.join('').length;
+  
+  // If more than 30% of text is repeated chars, it's garbage
+  if (repeatedChars / text.length > 0.3) return true;
+  
+  // Check for high ratio of non-printable or replacement characters
+  const nonPrintable = (text.match(/[\uFFFD\u0000-\u001F]/g) || []).length;
+  if (nonPrintable / text.length > 0.1) return true;
+  
+  // Check for too many consecutive same characters
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  if (words.length < 3) return true;
+  
+  return false;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -117,19 +140,23 @@ serve(async (req) => {
 
         console.log(`PDF extracted: ${extractedText.length} characters`);
         
-        // Return even if empty - let frontend handle it
+        // Detect garbage output (repeated chars like "nnnn" or very short)
+        const isGarbage = detectGarbageText(extractedText);
+        const isEmpty = !extractedText || extractedText.length < 15;
+        
         return new Response(
           JSON.stringify({ 
             extractedText: extractedText || "", 
             fileName,
-            isEmpty: !extractedText || extractedText.length < 10
+            isEmpty,
+            isGarbage,
+            needsOcr: isEmpty || isGarbage
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
         
       } catch (pdfError) {
         console.error("PDF parsing error:", pdfError);
-        // Don't throw - return empty with flag
         return new Response(
           JSON.stringify({ 
             extractedText: "",
