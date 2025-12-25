@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -49,6 +49,7 @@ const Plan = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const calculateDailyTopics = useCallback((topics: Topic[], examDate: string | null, dailyHours: number) => {
     const pendingTopics = topics.filter(t => t.status === 'pending' || !t.status).length;
@@ -73,11 +74,13 @@ const Plan = () => {
     return Math.max(minTopics, Math.min(maxTopics, calculatedTopics, pendingTopics));
   }, []);
 
+  // Refetch data when returning to this page (e.g., after quiz completion)
   useEffect(() => {
     if (user) {
+      setLoading(true);
       fetchData();
     }
-  }, [user]);
+  }, [user, location.key]);
 
   const fetchData = async () => {
     if (!user) return;
