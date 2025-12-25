@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { 
   BookOpen, Clock, CheckCircle2, 
-  Loader2, Target, Flame, Calendar, Brain, Sparkles
+  Loader2, Target, Flame, Calendar, Brain, Sparkles, RefreshCw
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 
@@ -43,6 +43,7 @@ const Plan = () => {
   const [allTopics, setAllTopics] = useState<Topic[]>([]);
   const [todayTopics, setTodayTopics] = useState<Topic[]>([]);
   const [completedToday, setCompletedToday] = useState<Set<string>>(new Set());
+  const [revisionsDueCount, setRevisionsDueCount] = useState(0);
   const [loading, setLoading] = useState(true);
   
   const { user } = useAuth();
@@ -135,6 +136,17 @@ const Plan = () => {
       if (completedTasks) {
         setCompletedToday(new Set(completedTasks.map(t => t.topic_id)));
       }
+
+      // Fetch revisions due today
+      const { data: revisionTasks } = await supabase
+        .from('study_tasks')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('task_type', 'revision')
+        .lte('scheduled_date', today)
+        .eq('is_completed', false);
+
+      setRevisionsDueCount(revisionTasks?.length || 0);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -254,6 +266,33 @@ const Plan = () => {
             <Progress value={progressPercent} className="h-3 bg-card/20" />
           </CardContent>
         </Card>
+
+        {/* Revisions Due Banner */}
+        {revisionsDueCount > 0 && (
+          <Card 
+            className="shadow-card border-0 bg-gradient-to-r from-warning/20 to-accent/20 cursor-pointer hover:shadow-lg transition-all"
+            onClick={() => navigate('/revision')}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-warning/20 flex items-center justify-center">
+                    <RefreshCw className="w-5 h-5 text-warning" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">
+                      {revisionsDueCount} revision{revisionsDueCount > 1 ? 's' : ''} due today
+                    </p>
+                    <p className="text-sm text-muted-foreground">Tap to view and complete</p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="text-warning border-warning">
+                  Review Now →
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Topic List */}
         <div className="space-y-3">
