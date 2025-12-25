@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,10 +9,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useToast } from '@/hooks/use-toast';
 import SyllabusUploader from '@/components/SyllabusUploader';
 import { 
   School, Trophy, Plus, X, Clock, FileText, 
-  ChevronRight, ChevronLeft, BookOpen, CalendarDays
+  ChevronRight, ChevronLeft, BookOpen, CalendarDays, Loader2
 } from 'lucide-react';
 
 type PrepType = 'school' | 'competitive';
@@ -33,8 +36,170 @@ const Onboarding = () => {
   const [dailyHours, setDailyHours] = useState(2);
   const [examDate, setExamDate] = useState('');
   const [syllabusText, setSyllabusText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [syllabusError, setSyllabusError] = useState<string | null>(null);
   
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
+
+  // Parse syllabus text into chapters and topics
+  const parseSyllabus = (text: string) => {
+    const lines = text.split('\n').filter(line => line.trim());
+    const chapters: { name: string; topics: string[] }[] = [];
+    let currentChapter: { name: string; topics: string[] } | null = null;
+
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      
+      // Check if it's a chapter line
+      if (/^(chapter|unit|\d+\.|\d+\))/i.test(trimmed) || 
+          (trimmed === trimmed.toUpperCase() && trimmed.length > 3 && !trimmed.startsWith('-'))) {
+        if (currentChapter && currentChapter.topics.length > 0) {
+          chapters.push(currentChapter);
+        }
+        const chapterName = trimmed
+          .replace(/^(chapter|unit)\s*\d*[:.)\s]*/i, '')
+          .replace(/^\d+[.:)\s]+/, '')
+          .trim();
+        currentChapter = { name: chapterName || `Chapter ${chapters.length + 1}`, topics: [] };
+      } else if (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*')) {
+        const topicName = trimmed.replace(/^[-•*\s]+/, '').trim();
+        if (topicName) {
+          if (currentChapter) {
+            currentChapter.topics.push(topicName);
+          } else {
+            currentChapter = { name: 'Chapter 1', topics: [topicName] };
+          }
+        }
+      } else if (currentChapter && trimmed && !trimmed.match(/^(chapter|unit)/i)) {
+        currentChapter.topics.push(trimmed.replace(/^[-•*\d.)\s]+/, '').trim());
+      }
+    });
+
+    if (currentChapter && currentChapter.topics.length > 0) {
+      chapters.push(currentChapter);
+    }
+
+    // If no chapters detected, create default structure
+    if (chapters.length === 0 && lines.length > 0) {
+      const allTopics = lines
+        .filter(l => l.trim())
+        .map(l => l.replace(/^[-•*\d.)\s]+/, '').trim())
+        .filter(l => l.length > 0);
+      
+      const chunkSize = 5;
+      for (let i = 0; i < allTopics.length; i += chunkSize) {
+        chapters.push({
+          name: `Part ${Math.floor(i / chunkSize) + 1}`,
+          topics: allTopics.slice(i, i + chunkSize)
+        });
+      }
+    }
+
+    return chapters;
+  };
+
+  const handleSaveAndContinue = async () => {
+    if (!syllabusText.trim()) {
+      setSyllabusError('Please enter a syllabus to continue');
+      return;
+    }
+
+    if (!user) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'You must be logged in to continue.',
+      });
+      return;
+    }
+
+    setSyllabusError(null);
+    setIsLoading(true);
+
+    try {
+      const parsedChapters = parseSyllabus(syllabusText);
+      
+      if (parsedChapters.length === 0) {
+        setSyllabusError('Could not parse syllabus. Please use "Chapter" for headings and "-" for topics.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Update profile
+      await supabase
+        .from('profiles')
+        .update({
+          prep_type: prepType,
+          board: board || null,
+          daily_study_hours: dailyHours,
+          exam_date: examDate || null,
+          onboarding_completed: true,
+        })
+        .eq('user_id', user.id);
+
+      // Create subjects, chapters, topics
+      for (const subject of subjects) {
+        const { data: subjectData, error: subjectError } = await supabase
+          .from('subjects')
+          .insert({
+            user_id: user.id,
+            name: subject.name,
+            color: subject.color,
+          })
+          .select()
+          .single();
+
+        if (subjectError) throw subjectError;
+
+        for (let chapterIndex = 0; chapterIndex < parsedChapters.length; chapterIndex++) {
+          const chapter = parsedChapters[chapterIndex];
+          
+          const { data: chapterData, error: chapterError } = await supabase
+            .from('chapters')
+            .insert({
+              user_id: user.id,
+              subject_id: subjectData.id,
+              name: chapter.name,
+              order_index: chapterIndex,
+            })
+            .select()
+            .single();
+
+          if (chapterError) throw chapterError;
+
+          const topicsToInsert = chapter.topics.map((topic, topicIndex) => ({
+            user_id: user.id,
+            chapter_id: chapterData.id,
+            name: topic,
+            order_index: topicIndex,
+            status: 'pending' as const,
+          }));
+
+          if (topicsToInsert.length > 0) {
+            await supabase.from('topics').insert(topicsToInsert);
+          }
+        }
+      }
+
+      toast({
+        title: 'Syllabus saved!',
+        description: 'Your study plan is ready.',
+      });
+      
+      navigate('/plan');
+    } catch (error) {
+      console.error('Error saving syllabus:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to save syllabus. Please try again.',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const totalSteps = 5;
   const progress = (step / totalSteps) * 100;
@@ -256,11 +421,25 @@ const Onboarding = () => {
                 Add your syllabus
               </CardTitle>
               <CardDescription>
-                Upload a PDF or TXT file, or paste your syllabus content directly.
+                Paste your syllabus content below. Use "Chapter" for headings and "-" for topics.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <SyllabusUploader value={syllabusText} onChange={setSyllabusText} />
+            <CardContent className="space-y-4">
+              <SyllabusUploader 
+                value={syllabusText} 
+                onChange={(text) => {
+                  setSyllabusText(text);
+                  if (syllabusError && text.trim()) {
+                    setSyllabusError(null);
+                  }
+                }} 
+              />
+              
+              {syllabusError && (
+                <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-sm text-destructive">
+                  {syllabusError}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -270,7 +449,7 @@ const Onboarding = () => {
           <Button
             variant="ghost"
             onClick={() => setStep(Math.max(1, step - 1))}
-            disabled={step === 1}
+            disabled={step === 1 || isLoading}
           >
             <ChevronLeft className="w-4 h-4 mr-2" />
             Back
@@ -292,22 +471,20 @@ const Onboarding = () => {
           ) : (
             <Button
               variant="hero"
-              onClick={() => {
-                navigate('/syllabus/preview', {
-                  state: {
-                    extractedText: syllabusText,
-                    subjects,
-                    examDate,
-                    dailyHours,
-                    prepType,
-                    board: board || null,
-                  }
-                });
-              }}
-              disabled={!syllabusText.trim()}
+              onClick={handleSaveAndContinue}
+              disabled={isLoading}
             >
-              <ChevronRight className="w-4 h-4 mr-2" />
-              Preview & Save
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <ChevronRight className="w-4 h-4 mr-2" />
+                  Extract & Continue
+                </>
+              )}
             </Button>
           )}
         </div>
