@@ -281,6 +281,7 @@ export type Database = {
         Row: {
           color: string | null
           created_at: string
+          difficulty: string | null
           id: string
           name: string
           user_id: string
@@ -288,6 +289,7 @@ export type Database = {
         Insert: {
           color?: string | null
           created_at?: string
+          difficulty?: string | null
           id?: string
           name: string
           user_id: string
@@ -295,6 +297,7 @@ export type Database = {
         Update: {
           color?: string | null
           created_at?: string
+          difficulty?: string | null
           id?: string
           name?: string
           user_id?: string
