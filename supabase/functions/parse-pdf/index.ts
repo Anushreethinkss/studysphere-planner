@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import * as pdfjs from "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,7 +20,6 @@ serve(async (req) => {
     let fileType = "application/pdf";
 
     if (contentType.includes("multipart/form-data")) {
-      // Handle FormData upload
       const formData = await req.formData();
       const file = formData.get("file") as File;
       
@@ -34,7 +34,6 @@ serve(async (req) => {
       fileType = file.type;
       fileData = new Uint8Array(await file.arrayBuffer());
     } else {
-      // Handle JSON with base64
       const body = await req.json();
       if (!body.fileData) {
         return new Response(
@@ -46,7 +45,6 @@ serve(async (req) => {
       fileName = body.fileName || "file.pdf";
       fileType = body.fileType || "application/pdf";
       
-      // Decode base64
       const base64Data = body.fileData.split(",").pop() || body.fileData;
       fileData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
     }
@@ -63,26 +61,77 @@ serve(async (req) => {
       );
     }
 
-    // For PDFs, use a simple text extraction approach
+    // For PDFs, use pdf.js
     if (fileType === "application/pdf" || fileName.endsWith(".pdf")) {
-      const extractedText = extractTextFromPdfBytes(fileData);
-      
-      if (!extractedText || extractedText.trim().length === 0) {
-        console.log("PDF extraction returned empty, may be image-based PDF");
+      try {
+        // Load PDF document
+        const loadingTask = pdfjs.getDocument({ data: fileData });
+        const pdf = await loadingTask.promise;
+        
+        console.log(`PDF loaded: ${pdf.numPages} pages`);
+        
+        const textParts: string[] = [];
+        
+        // Extract text from each page (limit to first 20 pages for performance)
+        const maxPages = Math.min(pdf.numPages, 20);
+        for (let i = 1; i <= maxPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          
+          const pageText = textContent.items
+            .map((item: any) => item.str)
+            .join(" ");
+          
+          if (pageText.trim()) {
+            textParts.push(pageText);
+          }
+        }
+        
+        let extractedText = textParts.join("\n\n");
+        
+        // Clean up the text
+        extractedText = extractedText
+          .replace(/\s+/g, ' ')
+          .replace(/([a-z])([A-Z])/g, '$1 $2')
+          .replace(/Chapter/gi, '\nChapter')
+          .replace(/Unit/gi, '\nUnit')
+          .trim();
+        
+        // Split into lines and clean
+        const lines = extractedText
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0);
+        
+        extractedText = lines.join('\n');
+        
+        if (!extractedText || extractedText.length < 10) {
+          console.log("PDF extraction returned minimal text, may be image-based");
+          return new Response(
+            JSON.stringify({ 
+              error: "PDF could not be parsed. This may be a scanned/image-based PDF. Please copy and paste the text manually.",
+              extractedText: ""
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        console.log(`PDF extracted: ${extractedText.length} characters`);
+        return new Response(
+          JSON.stringify({ extractedText, fileName }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+        
+      } catch (pdfError) {
+        console.error("PDF.js parsing error:", pdfError);
         return new Response(
           JSON.stringify({ 
-            error: "PDF could not be parsed. This may be a scanned/image-based PDF. Please copy and paste the text manually.",
+            error: "PDF could not be parsed. Try a different file or paste text manually.",
             extractedText: ""
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-
-      console.log(`PDF extracted: ${extractedText.length} characters`);
-      return new Response(
-        JSON.stringify({ extractedText, fileName }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
 
     return new Response(
@@ -101,94 +150,3 @@ serve(async (req) => {
     );
   }
 });
-
-// Simple PDF text extraction without external libraries
-function extractTextFromPdfBytes(bytes: Uint8Array): string {
-  const decoder = new TextDecoder("latin1");
-  const pdfContent = decoder.decode(bytes);
-  
-  const textParts: string[] = [];
-  
-  // Method 1: Extract text from stream objects
-  const streamRegex = /stream\s*([\s\S]*?)\s*endstream/g;
-  let match;
-  
-  while ((match = streamRegex.exec(pdfContent)) !== null) {
-    const streamContent = match[1];
-    
-    // Look for text showing operators: Tj, TJ, '
-    const tjMatches = streamContent.match(/\(([^)]*)\)\s*Tj/g);
-    if (tjMatches) {
-      for (const tjMatch of tjMatches) {
-        const textMatch = tjMatch.match(/\(([^)]*)\)/);
-        if (textMatch) {
-          textParts.push(decodeEscapedText(textMatch[1]));
-        }
-      }
-    }
-    
-    // TJ operator with array of strings
-    const tjArrayMatches = streamContent.match(/\[((?:[^[\]]*|\[(?:[^[\]]*|\[[^\]]*\])*\])*)\]\s*TJ/g);
-    if (tjArrayMatches) {
-      for (const tjArray of tjArrayMatches) {
-        const textMatches = tjArray.match(/\(([^)]*)\)/g);
-        if (textMatches) {
-          for (const tm of textMatches) {
-            const text = tm.match(/\(([^)]*)\)/);
-            if (text) {
-              textParts.push(decodeEscapedText(text[1]));
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  // Method 2: Look for BT...ET blocks (text blocks)
-  const btEtRegex = /BT\s*([\s\S]*?)\s*ET/g;
-  while ((match = btEtRegex.exec(pdfContent)) !== null) {
-    const block = match[1];
-    
-    // Extract Tj strings
-    const tjMatches = block.match(/\(([^)]*)\)\s*Tj/g);
-    if (tjMatches) {
-      for (const tjMatch of tjMatches) {
-        const textMatch = tjMatch.match(/\(([^)]*)\)/);
-        if (textMatch) {
-          textParts.push(decodeEscapedText(textMatch[1]));
-        }
-      }
-    }
-  }
-
-  // Clean and format the extracted text
-  let result = textParts.join(" ");
-  
-  // Clean up common issues
-  result = result
-    .replace(/\s+/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2') // Add space between camelCase
-    .replace(/\s*-\s*/g, ' - ')
-    .replace(/Chapter/gi, '\nChapter')
-    .replace(/Unit/gi, '\nUnit')
-    .trim();
-
-  // Split into lines and clean
-  const lines = result
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0);
-
-  return lines.join('\n');
-}
-
-function decodeEscapedText(text: string): string {
-  return text
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\r')
-    .replace(/\\t/g, '\t')
-    .replace(/\\\(/g, '(')
-    .replace(/\\\)/g, ')')
-    .replace(/\\\\/g, '\\')
-    .replace(/\\(\d{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)));
-}
