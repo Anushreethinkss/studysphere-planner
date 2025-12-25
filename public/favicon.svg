@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Rounded square background -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#D88373"/>
+  
+  <!-- BookOpen icon -->
+  <g fill="none" stroke="#18206F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 22c-4-4-10-5-14-5v26c4 0 10 1 14 5"/>
+    <path d="M32 22c4-4 10-5 14-5v26c-4 0-10 1-14 5"/>
+  </g>
+</svg>
