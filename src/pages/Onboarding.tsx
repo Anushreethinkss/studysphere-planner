@@ -13,14 +13,21 @@ import { useToast } from '@/hooks/use-toast';
 import SyllabusUploader from '@/components/SyllabusUploader';
 import { 
   School, Trophy, Plus, X, Clock, FileText, 
-  ChevronRight, ChevronLeft, BookOpen, CalendarDays, Loader2
+  ChevronRight, ChevronLeft, BookOpen, CalendarDays, Loader2, Target
 } from 'lucide-react';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 type PrepType = 'school' | 'competitive';
+type DifficultyLevel = 'strong' | 'medium' | 'weak';
 
 interface Subject {
   name: string;
   color: string;
+}
+
+interface SubjectDifficulty {
+  name: string;
+  difficulty: DifficultyLevel;
 }
 
 const SUBJECT_COLORS = [
@@ -38,6 +45,8 @@ const Onboarding = () => {
   const [syllabusText, setSyllabusText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [syllabusError, setSyllabusError] = useState<string | null>(null);
+  const [parsedSubjectNames, setParsedSubjectNames] = useState<string[]>([]);
+  const [subjectDifficulties, setSubjectDifficulties] = useState<SubjectDifficulty[]>([]);
   
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -199,12 +208,17 @@ const Onboarding = () => {
       for (const parsedSubject of parsedSubjects) {
         if (parsedSubject.chapters.length === 0) continue;
         
+        // Find the difficulty for this subject
+        const difficultyEntry = subjectDifficulties.find(d => d.name === parsedSubject.name);
+        const difficulty = difficultyEntry?.difficulty || 'medium';
+        
         const { data: subjectData, error: subjectError } = await supabase
           .from('subjects')
           .insert({
             user_id: user.id,
             name: parsedSubject.name,
             color: parsedSubject.color,
+            difficulty: difficulty,
           })
           .select()
           .single();
@@ -259,8 +273,36 @@ const Onboarding = () => {
     }
   };
 
-  const totalSteps = 5;
+  const totalSteps = 6;
   const progress = (step / totalSteps) * 100;
+
+  // Parse syllabus and extract subject names for step 6
+  const handleParseSyllabus = () => {
+    if (!syllabusText.trim()) {
+      setSyllabusError('Please enter a syllabus to continue');
+      return false;
+    }
+    
+    const parsed = parseSyllabus(syllabusText);
+    if (parsed.length === 0 || parsed.every(s => s.chapters.length === 0)) {
+      setSyllabusError('Could not parse syllabus. Use "Subject:" for subjects, "Chapter" for chapters, and "-" for topics.');
+      return false;
+    }
+    
+    setSyllabusError(null);
+    const names = parsed.map(s => s.name);
+    setParsedSubjectNames(names);
+    
+    // Initialize difficulties with 'medium' as default
+    setSubjectDifficulties(names.map(name => ({ name, difficulty: 'medium' as DifficultyLevel })));
+    return true;
+  };
+
+  const updateSubjectDifficulty = (subjectName: string, difficulty: DifficultyLevel) => {
+    setSubjectDifficulties(prev => 
+      prev.map(s => s.name === subjectName ? { ...s, difficulty } : s)
+    );
+  };
 
   const addSubject = () => {
     if (newSubject.trim() && !subjects.find(s => s.name.toLowerCase() === newSubject.toLowerCase())) {
@@ -502,6 +544,75 @@ const Onboarding = () => {
           </Card>
         )}
 
+        {/* Step 6: Subject Difficulty */}
+        {step === 6 && (
+          <Card className="shadow-card border-0 animate-fade-up">
+            <CardHeader>
+              <CardTitle className="font-display flex items-center gap-2">
+                <Target className="w-6 h-6 text-accent" />
+                Which subjects do you find difficult?
+              </CardTitle>
+              <CardDescription>
+                Rate your comfort level with each subject to personalize your study plan
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Header row */}
+              <div className="grid grid-cols-[1fr,auto] gap-4 items-center pb-2 border-b border-border">
+                <span className="text-sm font-medium text-muted-foreground">Subject</span>
+                <div className="grid grid-cols-3 gap-6 text-center">
+                  <span className="text-sm font-medium text-success">Strong</span>
+                  <span className="text-sm font-medium text-warning">Medium</span>
+                  <span className="text-sm font-medium text-destructive">Weak</span>
+                </div>
+              </div>
+
+              {/* Subject rows */}
+              {subjectDifficulties.map((subject) => (
+                <div 
+                  key={subject.name}
+                  className="grid grid-cols-[1fr,auto] gap-4 items-center p-3 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors"
+                >
+                  <span className="font-medium text-foreground">{subject.name}</span>
+                  <RadioGroup
+                    value={subject.difficulty}
+                    onValueChange={(value) => updateSubjectDifficulty(subject.name, value as DifficultyLevel)}
+                    className="grid grid-cols-3 gap-6"
+                  >
+                    <div className="flex justify-center">
+                      <RadioGroupItem 
+                        value="strong" 
+                        id={`${subject.name}-strong`}
+                        className="border-success data-[state=checked]:bg-success data-[state=checked]:border-success"
+                      />
+                    </div>
+                    <div className="flex justify-center">
+                      <RadioGroupItem 
+                        value="medium" 
+                        id={`${subject.name}-medium`}
+                        className="border-warning data-[state=checked]:bg-warning data-[state=checked]:border-warning"
+                      />
+                    </div>
+                    <div className="flex justify-center">
+                      <RadioGroupItem 
+                        value="weak" 
+                        id={`${subject.name}-weak`}
+                        className="border-destructive data-[state=checked]:bg-destructive data-[state=checked]:border-destructive"
+                      />
+                    </div>
+                  </RadioGroup>
+                </div>
+              ))}
+
+              {subjectDifficulties.length === 0 && (
+                <p className="text-muted-foreground text-sm text-center py-4">
+                  No subjects found. Please go back and add your syllabus.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Navigation */}
         <div className="flex justify-between mt-8">
           <Button
@@ -516,11 +627,21 @@ const Onboarding = () => {
           {step < totalSteps ? (
             <Button
               variant="accent"
-              onClick={() => setStep(step + 1)}
+              onClick={() => {
+                // Special handling for step 5 -> 6 transition
+                if (step === 5) {
+                  if (handleParseSyllabus()) {
+                    setStep(step + 1);
+                  }
+                } else {
+                  setStep(step + 1);
+                }
+              }}
               disabled={
                 (step === 1 && !prepType) ||
                 (step === 2 && !examDate) ||
-                (step === 3 && subjects.length === 0)
+                (step === 3 && subjects.length === 0) ||
+                (step === 5 && !syllabusText.trim())
               }
             >
               Continue
@@ -530,7 +651,7 @@ const Onboarding = () => {
             <Button
               variant="hero"
               onClick={handleSaveAndContinue}
-              disabled={isLoading}
+              disabled={isLoading || subjectDifficulties.length === 0}
             >
               {isLoading ? (
                 <>
@@ -540,7 +661,7 @@ const Onboarding = () => {
               ) : (
                 <>
                   <ChevronRight className="w-4 h-4 mr-2" />
-                  Extract & Continue
+                  Complete Setup
                 </>
               )}
             </Button>
