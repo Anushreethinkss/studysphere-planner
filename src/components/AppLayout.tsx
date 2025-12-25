@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { 
   BookOpen, Calendar, Target, BookMarked, Settings, LogOut, 
-  Menu, X, ChevronLeft, LayoutDashboard, GraduationCap
+  Menu, X, LayoutDashboard, GraduationCap, RefreshCw
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,7 @@ interface AppLayoutProps {
 const navItems = [
   { path: '/plan', label: "Today's Plan", icon: LayoutDashboard },
   { path: '/syllabus', label: 'Syllabus', icon: GraduationCap },
+  { path: '/revision', label: 'Revision', icon: RefreshCw },
   { path: '/progress', label: 'Progress', icon: Target },
   { path: '/calendar', label: 'Calendar', icon: Calendar },
   { path: '/mistakes', label: 'Mistakes', icon: BookMarked },

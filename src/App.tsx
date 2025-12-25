@@ -14,6 +14,7 @@ import Syllabus from "./pages/Syllabus";
 import Progress from "./pages/Progress";
 import Mistakes from "./pages/Mistakes";
 import Calendar from "./pages/Calendar";
+import Revision from "./pages/Revision";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
@@ -101,6 +102,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <Calendar />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/revision" 
+        element={
+          <ProtectedRoute>
+            <Revision />
           </ProtectedRoute>
         } 
       />
