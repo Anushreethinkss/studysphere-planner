@@ -3,11 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, FileText, Loader2, X, Sparkles } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
-
-// Set up PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+import { Upload, FileText, Loader2, X, Sparkles, AlertCircle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface SyllabusUploaderProps {
   value: string;
@@ -17,6 +14,7 @@ interface SyllabusUploaderProps {
 const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -25,7 +23,7 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
     if (!file) return;
 
     const validTypes = ['application/pdf', 'text/plain'];
-    if (!validTypes.includes(file.type)) {
+    if (!validTypes.includes(file.type) && !file.name.endsWith('.txt') && !file.name.endsWith('.pdf')) {
       toast({
         variant: 'destructive',
         title: 'Invalid file type',
@@ -34,18 +32,53 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
       return;
     }
 
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        variant: 'destructive',
+        title: 'File too large',
+        description: 'Please upload a file smaller than 10MB.',
+      });
+      return;
+    }
+
     setIsProcessing(true);
     setUploadedFileName(file.name);
+    setError(null);
 
     try {
       let extractedText = '';
 
-      if (file.type === 'text/plain') {
-        // Read text file directly
+      // Handle text files directly on client
+      if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
         extractedText = await file.text();
-      } else if (file.type === 'application/pdf') {
-        // Parse PDF using PDF.js
-        extractedText = await extractTextFromPdf(file);
+      } else {
+        // Send PDF to backend for parsing
+        const base64 = await fileToBase64(file);
+        
+        const { data, error: funcError } = await supabase.functions.invoke('parse-pdf', {
+          body: {
+            fileData: base64,
+            fileName: file.name,
+            fileType: file.type,
+          },
+        });
+
+        if (funcError) {
+          throw new Error(funcError.message || 'Failed to parse PDF');
+        }
+
+        if (data?.error) {
+          setError(data.error);
+          toast({
+            variant: 'destructive',
+            title: 'PDF parsing issue',
+            description: data.error,
+          });
+          return;
+        }
+
+        extractedText = data?.extractedText || '';
       }
 
       if (extractedText.trim()) {
@@ -55,6 +88,7 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
           description: `Extracted ${extractedText.split('\n').filter(l => l.trim()).length} lines from ${file.name}`,
         });
       } else {
+        setError('No text found in the file. Try pasting manually.');
         toast({
           variant: 'destructive',
           title: 'No text found',
@@ -63,49 +97,33 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
       }
     } catch (error) {
       console.error('Error processing file:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Could not read the file';
+      setError(errorMessage);
       toast({
         variant: 'destructive',
-        title: 'Error processing file',
-        description: 'Could not read the file. Please try again or paste manually.',
+        title: 'PDF could not be parsed',
+        description: errorMessage,
       });
     } finally {
       setIsProcessing(false);
-      // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
   };
 
-  const extractTextFromPdf = async (file: File): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    
-    let fullText = '';
-    
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      const page = await pdf.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ');
-      fullText += pageText + '\n';
-    }
-
-    // Clean up and format the text
-    return fullText
-      .replace(/\s+/g, ' ')
-      .replace(/([.!?])\s+/g, '$1\n')
-      .replace(/Chapter/gi, '\nChapter')
-      .replace(/Unit/gi, '\nUnit')
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line)
-      .join('\n');
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
   };
 
   const clearFile = () => {
     setUploadedFileName(null);
+    setError(null);
     onChange('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -119,7 +137,7 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.txt"
+          accept=".pdf,.txt,application/pdf,text/plain"
           onChange={handleFileSelect}
           className="hidden"
           id="syllabus-upload"
@@ -133,7 +151,9 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
             transition-all duration-300
             ${isProcessing 
               ? 'border-accent bg-accent/10' 
-              : 'border-border hover:border-primary hover:bg-primary/5'
+              : error 
+                ? 'border-destructive bg-destructive/5'
+                : 'border-border hover:border-primary hover:bg-primary/5'
             }
           `}
         >
@@ -141,6 +161,7 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
             <div className="flex flex-col items-center gap-2">
               <Loader2 className="w-8 h-8 text-accent animate-spin" />
               <span className="text-sm text-muted-foreground">Processing file...</span>
+              <span className="text-xs text-muted-foreground">This may take a moment</span>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2">
@@ -165,7 +186,16 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
         )}
       </div>
 
-      {uploadedFileName && (
+      {/* Error Display */}
+      {error && (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-destructive/10 border border-destructive/30">
+          <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+          <div className="text-sm text-destructive">{error}</div>
+        </div>
+      )}
+
+      {/* File Name Display */}
+      {uploadedFileName && !error && (
         <div className="flex items-center gap-2 p-3 rounded-xl bg-accent/10 border border-accent/30">
           <FileText className="w-4 h-4 text-accent" />
           <span className="text-sm text-foreground">{uploadedFileName}</span>
