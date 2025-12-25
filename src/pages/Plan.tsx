@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { 
   BookOpen, Clock, CheckCircle2, 
-  Loader2, Target, Flame, Calendar, Brain, Sparkles, RefreshCw
+  Loader2, Target, Flame, Calendar, Brain, Sparkles, RefreshCw, Zap, BarChart3
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 
@@ -18,6 +18,7 @@ interface Topic {
   name: string;
   content: string | null;
   status: string;
+  confidence: string | null;
   order_index: number;
   chapter: {
     id: string;
@@ -38,10 +39,36 @@ interface Profile {
   current_streak: number;
 }
 
+interface SubjectDistribution {
+  subjectId: string;
+  subjectName: string;
+  color: string;
+  weight: number;
+  topicCount: number;
+  topics: Topic[];
+}
+
+const AVERAGE_TOPIC_MINUTES = 30;
+
+const getSubjectWeight = (topics: Topic[]): number => {
+  // Calculate average confidence for a subject's topics
+  const confidenceLevels = topics.map(t => t.confidence).filter(Boolean);
+  if (confidenceLevels.length === 0) return 1.0; // Default: medium weight
+  
+  const strongCount = confidenceLevels.filter(c => c === 'strong').length;
+  const weakCount = confidenceLevels.filter(c => c === 'weak').length;
+  const mediumCount = confidenceLevels.length - strongCount - weakCount;
+  
+  // Weighted average: strong=0.8, medium=1.0, weak=1.5
+  const totalWeight = (strongCount * 0.8) + (mediumCount * 1.0) + (weakCount * 1.5);
+  return totalWeight / confidenceLevels.length;
+};
+
 const Plan = () => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [allTopics, setAllTopics] = useState<Topic[]>([]);
   const [todayTopics, setTodayTopics] = useState<Topic[]>([]);
+  const [subjectDistribution, setSubjectDistribution] = useState<SubjectDistribution[]>([]);
   const [completedToday, setCompletedToday] = useState<Set<string>>(new Set());
   const [revisionsDueCount, setRevisionsDueCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -51,27 +78,97 @@ const Plan = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const calculateDailyTopics = useCallback((topics: Topic[], examDate: string | null, dailyHours: number) => {
-    const pendingTopics = topics.filter(t => t.status === 'pending' || !t.status).length;
+  const calculateDynamicDistribution = useCallback((
+    topics: Topic[],
+    dailyHours: number
+  ): { distribution: SubjectDistribution[]; totalTopics: Topic[] } => {
+    // Calculate total topics user can study today
+    const totalAvailableMinutes = dailyHours * 60;
+    const maxTopicsToday = Math.floor(totalAvailableMinutes / AVERAGE_TOPIC_MINUTES);
     
-    if (!examDate || pendingTopics === 0) {
-      // Default based on study hours: more hours = more topics
-      return Math.max(2, Math.min(pendingTopics, Math.floor(dailyHours * 1.5)));
+    // Get pending topics only
+    const pendingTopics = topics.filter(t => t.status === 'pending' || !t.status);
+    
+    if (pendingTopics.length === 0) {
+      return { distribution: [], totalTopics: [] };
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const exam = new Date(examDate);
-    exam.setHours(0, 0, 0, 0);
-    
-    const daysRemaining = Math.max(1, Math.ceil((exam.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
-    const calculatedTopics = Math.ceil(pendingTopics / daysRemaining);
-    
-    // Ensure minimum of 2 topics per day for engagement, max based on study hours
-    const minTopics = 2;
-    const maxTopics = Math.max(minTopics, Math.floor(dailyHours * 2));
-    
-    return Math.max(minTopics, Math.min(maxTopics, calculatedTopics, pendingTopics));
+    // Group pending topics by subject
+    const subjectGroups = new Map<string, { topics: Topic[]; name: string; color: string }>();
+    pendingTopics.forEach(topic => {
+      const subjectId = topic.chapter.subject.id;
+      if (!subjectGroups.has(subjectId)) {
+        subjectGroups.set(subjectId, {
+          topics: [],
+          name: topic.chapter.subject.name,
+          color: topic.chapter.subject.color
+        });
+      }
+      subjectGroups.get(subjectId)!.topics.push(topic);
+    });
+
+    // Calculate weights for each subject
+    const subjectWeights: { subjectId: string; name: string; color: string; weight: number; topics: Topic[] }[] = [];
+    let totalWeight = 0;
+
+    subjectGroups.forEach((group, subjectId) => {
+      const weight = getSubjectWeight(group.topics);
+      totalWeight += weight;
+      subjectWeights.push({
+        subjectId,
+        name: group.name,
+        color: group.color,
+        weight,
+        topics: group.topics
+      });
+    });
+
+    // Distribute topics proportionally based on weights
+    let topicsToAllocate = Math.min(maxTopicsToday, pendingTopics.length);
+    const distribution: SubjectDistribution[] = [];
+    const allocatedTopics: Topic[] = [];
+
+    // First pass: allocate based on weight ratio, ensuring at least 1 per subject
+    subjectWeights.forEach(sw => {
+      const shareRatio = sw.weight / totalWeight;
+      let topicCount = Math.max(1, Math.round(topicsToAllocate * shareRatio));
+      
+      // Don't allocate more than available topics for this subject
+      topicCount = Math.min(topicCount, sw.topics.length);
+      
+      const selectedTopics = sw.topics.slice(0, topicCount);
+      allocatedTopics.push(...selectedTopics);
+      
+      distribution.push({
+        subjectId: sw.subjectId,
+        subjectName: sw.name,
+        color: sw.color,
+        weight: sw.weight,
+        topicCount,
+        topics: selectedTopics
+      });
+    });
+
+    // Adjust if we over-allocated
+    while (allocatedTopics.length > topicsToAllocate && distribution.length > 0) {
+      // Find subject with most topics and reduce by 1
+      const maxDist = distribution.reduce((a, b) => a.topicCount > b.topicCount ? a : b);
+      if (maxDist.topicCount > 1) {
+        maxDist.topicCount--;
+        maxDist.topics = maxDist.topics.slice(0, maxDist.topicCount);
+        allocatedTopics.pop();
+      } else {
+        break;
+      }
+    }
+
+    // Sort distribution by topic count (highest first)
+    distribution.sort((a, b) => b.topicCount - a.topicCount);
+
+    // Flatten topics for the final list
+    const finalTopics = distribution.flatMap(d => d.topics);
+
+    return { distribution, totalTopics: finalTopics };
   }, []);
 
   // Refetch data when returning to this page (e.g., after quiz completion)
@@ -101,6 +198,7 @@ const Plan = () => {
           name,
           content,
           status,
+          confidence,
           order_index,
           chapter:chapters (
             id,
@@ -142,24 +240,21 @@ const Plan = () => {
       
       setCompletedToday(completedTodayIds);
 
-      // Get topics that were completed today (have completed_at date of today)
+      // Get topics that were completed today
       const todayCompletedTopics = sortedTopics.filter(t => {
         if (t.status && t.status !== 'pending') {
-          // Check if topic was in today's tasks
           return todayTaskTopicIds.has(t.id);
         }
         return false;
       });
 
-      const topicsPerDay = calculateDailyTopics(
+      // Use the dynamic distribution algorithm
+      const { distribution, totalTopics: pendingDailyTopics } = calculateDynamicDistribution(
         sortedTopics,
-        profileData?.exam_date || null,
         profileData?.daily_study_hours || 2
       );
-
-      // Get pending topics for today
-      const pendingTopics = sortedTopics.filter(t => t.status === 'pending' || !t.status);
-      const pendingDailyTopics = pendingTopics.slice(0, Math.max(0, topicsPerDay - todayCompletedTopics.length));
+      
+      setSubjectDistribution(distribution);
       
       // Combine: pending topics first, then completed topics at the bottom
       const dailyTopics = [...pendingDailyTopics, ...todayCompletedTopics];
@@ -295,7 +390,38 @@ const Plan = () => {
           </CardContent>
         </Card>
 
-        {/* Revisions Due Banner */}
+        {/* Today's Stats Summary */}
+        {subjectDistribution.length > 0 && (
+          <Card className="shadow-card border-0">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Zap className="w-5 h-5 text-accent" />
+                <p className="font-semibold text-foreground">
+                  Today you can finish {todayTopics.length} topics
+                  <span className="text-muted-foreground font-normal">
+                    {' '}(~{Math.round((todayTopics.length * AVERAGE_TOPIC_MINUTES) / 60 * 10) / 10} hours)
+                  </span>
+                </p>
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <BarChart3 className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Distribution by subject:</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {subjectDistribution.map(sd => (
+                  <Badge 
+                    key={sd.subjectId}
+                    variant="outline"
+                    className="text-sm px-3 py-1"
+                    style={{ borderColor: sd.color, color: sd.color }}
+                  >
+                    {sd.subjectName} ({sd.topicCount})
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
         {revisionsDueCount > 0 && (
           <Card 
             className="shadow-card border-0 bg-gradient-to-r from-warning/20 to-accent/20 cursor-pointer hover:shadow-lg transition-all"
