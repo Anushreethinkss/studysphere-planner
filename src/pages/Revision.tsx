@@ -44,7 +44,8 @@ interface GroupedTasks {
 }
 
 const Revision = () => {
-  const [tasks, setTasks] = useState<RevisionTask[]>([]);
+  const [dueTasks, setDueTasks] = useState<RevisionTask[]>([]);
+  const [upcomingTasks, setUpcomingTasks] = useState<RevisionTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [completingTask, setCompletingTask] = useState<string | null>(null);
   
@@ -64,7 +65,8 @@ const Revision = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      const { data, error } = await supabase
+      // Fetch due tasks (today and overdue)
+      const { data: dueData, error: dueError } = await supabase
         .from('study_tasks')
         .select(`
           id,
@@ -94,8 +96,42 @@ const Revision = () => {
         .lte('scheduled_date', today)
         .order('scheduled_date', { ascending: true });
 
-      if (error) throw error;
-      setTasks((data as unknown as RevisionTask[]) || []);
+      if (dueError) throw dueError;
+      setDueTasks((dueData as unknown as RevisionTask[]) || []);
+
+      // Fetch upcoming tasks (future dates)
+      const { data: upcomingData, error: upcomingError } = await supabase
+        .from('study_tasks')
+        .select(`
+          id,
+          scheduled_date,
+          task_type,
+          is_completed,
+          require_quiz,
+          topic:topics (
+            id,
+            name,
+            content,
+            status,
+            chapter:chapters (
+              id,
+              name,
+              subject:subjects (
+                id,
+                name,
+                color
+              )
+            )
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('task_type', 'revision')
+        .eq('is_completed', false)
+        .gt('scheduled_date', today)
+        .order('scheduled_date', { ascending: true });
+
+      if (upcomingError) throw upcomingError;
+      setUpcomingTasks((upcomingData as unknown as RevisionTask[]) || []);
     } catch (error) {
       console.error('Error fetching revision tasks:', error);
     } finally {
@@ -150,7 +186,7 @@ const Revision = () => {
       });
 
       // Remove from local state
-      setTasks(prev => prev.filter(t => t.id !== task.id));
+      setDueTasks(prev => prev.filter(t => t.id !== task.id));
     } catch (error) {
       console.error('Error completing revision:', error);
       toast({
@@ -180,13 +216,15 @@ const Revision = () => {
 
   // Separate tasks due today vs overdue
   const today = new Date().toISOString().split('T')[0];
-  const todayTasks = tasks.filter(t => t.scheduled_date === today);
-  const overdueTasks = tasks.filter(t => t.scheduled_date < today);
+  const todayTasks = dueTasks.filter(t => t.scheduled_date === today);
+  const overdueTasks = dueTasks.filter(t => t.scheduled_date < today);
   
   const groupedTodayTasks = groupTasksBySubject(todayTasks);
   const groupedOverdueTasks = groupTasksBySubject(overdueTasks);
+  const groupedUpcomingTasks = groupTasksBySubject(upcomingTasks);
   
-  const totalPending = tasks.length;
+  const totalDue = dueTasks.length;
+  const totalUpcoming = upcomingTasks.length;
 
   if (loading) {
     return (
@@ -198,7 +236,7 @@ const Revision = () => {
     );
   }
 
-  const renderTaskCard = (task: RevisionTask, index: number) => (
+  const renderTaskCard = (task: RevisionTask, index: number, showDate: boolean = false) => (
     <Card 
       key={task.id} 
       className="shadow-card border-0 animate-fade-up"
@@ -224,6 +262,11 @@ const Revision = () => {
                   Quiz Required
                 </Badge>
               )}
+              {showDate && (
+                <Badge variant="outline" className="text-xs">
+                  {new Date(task.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </Badge>
+              )}
             </div>
             <p className="font-semibold text-foreground">{task.topic.name}</p>
             <p className="text-sm text-muted-foreground">{task.topic.chapter.name}</p>
@@ -235,45 +278,47 @@ const Revision = () => {
             </div>
           </div>
           
-          <div className="flex flex-col gap-2 shrink-0">
-            <Button 
-              variant="accent" 
-              size="sm"
-              onClick={() => handleStartRevision(task)}
-              disabled={completingTask === task.id}
-            >
-              {completingTask === task.id ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : task.require_quiz ? (
-                <>
-                  <Play className="w-4 h-4 mr-1" />
-                  Start Quiz
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4 mr-1" />
-                  Start Revision
-                </>
-              )}
-            </Button>
-            {!task.require_quiz && (
+          {!showDate && (
+            <div className="flex flex-col gap-2 shrink-0">
               <Button 
-                variant="outline" 
+                variant="accent" 
                 size="sm"
-                onClick={() => handleMarkComplete(task)}
+                onClick={() => handleStartRevision(task)}
                 disabled={completingTask === task.id}
               >
-                <CheckCircle2 className="w-4 h-4 mr-1" />
-                Mark Complete
+                {completingTask === task.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : task.require_quiz ? (
+                  <>
+                    <Play className="w-4 h-4 mr-1" />
+                    Start Quiz
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 mr-1" />
+                    Start Revision
+                  </>
+                )}
               </Button>
-            )}
-          </div>
+              {!task.require_quiz && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => handleMarkComplete(task)}
+                  disabled={completingTask === task.id}
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-1" />
+                  Mark Complete
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
   );
 
-  const renderGroupedTasks = (grouped: GroupedTasks) => (
+  const renderGroupedTasks = (grouped: GroupedTasks, showDate: boolean = false) => (
     Object.entries(grouped).map(([subjectName, { color, tasks: subjectTasks }]) => (
       <div key={subjectName} className="space-y-3">
         <div className="flex items-center gap-2">
@@ -286,7 +331,7 @@ const Revision = () => {
             {subjectTasks.length} topic{subjectTasks.length > 1 ? 's' : ''}
           </Badge>
         </div>
-        {subjectTasks.map((task, index) => renderTaskCard(task, index))}
+        {subjectTasks.map((task, index) => renderTaskCard(task, index, showDate))}
       </div>
     ))
   );
@@ -311,11 +356,11 @@ const Revision = () => {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className="text-primary-foreground/80">Pending Revisions</p>
-                <p className="text-2xl font-bold">{totalPending} topic{totalPending !== 1 ? 's' : ''}</p>
+                <p className="text-2xl font-bold">{totalDue + totalUpcoming} topic{(totalDue + totalUpcoming) !== 1 ? 's' : ''}</p>
               </div>
               <Calendar className="w-10 h-10 text-primary-foreground/50" />
             </div>
-            <div className="flex gap-4 text-sm">
+            <div className="flex gap-4 text-sm flex-wrap">
               <span className="text-primary-foreground/80">
                 Today: {todayTasks.length}
               </span>
@@ -324,12 +369,17 @@ const Revision = () => {
                   Overdue: {overdueTasks.length}
                 </span>
               )}
+              {totalUpcoming > 0 && (
+                <span className="text-primary-foreground/80">
+                  Upcoming: {totalUpcoming}
+                </span>
+              )}
             </div>
           </CardContent>
         </Card>
 
         {/* No Tasks State */}
-        {totalPending === 0 && (
+        {totalDue === 0 && totalUpcoming === 0 && (
           <Card className="shadow-card border-0">
             <CardContent className="p-8 text-center">
               <CheckCircle2 className="w-16 h-16 text-success mx-auto mb-4" />
@@ -337,7 +387,7 @@ const Revision = () => {
                 All caught up!
               </h3>
               <p className="text-muted-foreground">
-                No revisions due. Keep studying to build your knowledge!
+                No revisions scheduled. Keep studying to build your knowledge!
               </p>
             </CardContent>
           </Card>
@@ -362,6 +412,17 @@ const Revision = () => {
               Due Today ({todayTasks.length})
             </h2>
             {renderGroupedTasks(groupedTodayTasks)}
+          </div>
+        )}
+
+        {/* Upcoming Tasks */}
+        {upcomingTasks.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
+              <Clock className="w-5 h-5 text-primary" />
+              Upcoming ({upcomingTasks.length})
+            </h2>
+            {renderGroupedTasks(groupedUpcomingTasks, true)}
           </div>
         )}
       </div>
