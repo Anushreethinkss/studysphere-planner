@@ -51,8 +51,11 @@ const Plan = () => {
   const navigate = useNavigate();
 
   const calculateDailyTopics = useCallback((topics: Topic[], examDate: string | null, dailyHours: number) => {
-    if (!examDate) {
-      return Math.max(3, Math.floor(dailyHours * 1.5));
+    const pendingTopics = topics.filter(t => t.status === 'pending' || !t.status).length;
+    
+    if (!examDate || pendingTopics === 0) {
+      // Default based on study hours: more hours = more topics
+      return Math.max(2, Math.min(pendingTopics, Math.floor(dailyHours * 1.5)));
     }
 
     const today = new Date();
@@ -61,9 +64,13 @@ const Plan = () => {
     exam.setHours(0, 0, 0, 0);
     
     const daysRemaining = Math.max(1, Math.ceil((exam.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
-    const pendingTopics = topics.filter(t => t.status === 'pending' || !t.status).length;
+    const calculatedTopics = Math.ceil(pendingTopics / daysRemaining);
     
-    return Math.max(1, Math.ceil(pendingTopics / daysRemaining));
+    // Ensure minimum of 2 topics per day for engagement, max based on study hours
+    const minTopics = 2;
+    const maxTopics = Math.max(minTopics, Math.floor(dailyHours * 2));
+    
+    return Math.max(minTopics, Math.min(maxTopics, calculatedTopics, pendingTopics));
   }, []);
 
   useEffect(() => {
