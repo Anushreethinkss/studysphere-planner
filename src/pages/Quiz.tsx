@@ -242,8 +242,10 @@ const Quiz = () => {
         status = 'weak';
       }
 
-      // Update topic
-      await supabase
+      console.log('Updating topic with status:', status, 'for topicId:', topicId);
+
+      // Update topic - include user_id for RLS
+      const { error: topicError } = await supabase
         .from('topics')
         .update({
           status,
@@ -251,11 +253,17 @@ const Quiz = () => {
           last_quiz_score: score,
           completed_at: new Date().toISOString(),
         })
-        .eq('id', topicId);
+        .eq('id', topicId)
+        .eq('user_id', user.id);
+
+      if (topicError) {
+        console.error('Error updating topic:', topicError);
+        throw topicError;
+      }
 
       // Create study task record
       const today = new Date().toISOString().split('T')[0];
-      await supabase
+      const { error: taskError } = await supabase
         .from('study_tasks')
         .insert({
           user_id: user.id,
@@ -266,6 +274,10 @@ const Quiz = () => {
           is_completed: true,
           completed_at: new Date().toISOString(),
         });
+
+      if (taskError) {
+        console.error('Error creating study task:', taskError);
+      }
 
       // Schedule revision based on status
       const todayDate = new Date();
@@ -295,7 +307,10 @@ const Quiz = () => {
         task_type: 'revision' as const,
       }));
 
-      await supabase.from('study_tasks').insert(revisionTasks);
+      const { error: revisionError } = await supabase.from('study_tasks').insert(revisionTasks);
+      if (revisionError) {
+        console.error('Error scheduling revisions:', revisionError);
+      }
 
       // Update streak
       const { data: profileData } = await supabase
@@ -327,13 +342,14 @@ const Quiz = () => {
         description: getStatusMessage(status),
       });
 
-      navigate('/plan');
+      console.log('Navigating to /plan');
+      navigate('/plan', { replace: true });
     } catch (error) {
       console.error('Error saving results:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to save results.',
+        description: 'Failed to save results. Please try again.',
       });
     } finally {
       setIsSaving(false);
