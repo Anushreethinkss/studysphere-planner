@@ -92,8 +92,8 @@ const Mistakes = () => {
 
       setMistakes(mistakes.map(m => m.id === id ? { ...m, reviewed: true } : m));
       toast({
-        title: 'Marked as reviewed',
-        description: 'Great job reviewing this mistake!',
+        title: 'Marked as fixed',
+        description: 'Great job understanding this mistake!',
       });
     } catch (error) {
       console.error('Error updating mistake:', error);
@@ -122,6 +122,22 @@ const Mistakes = () => {
     : mistakes;
 
   const unreviewedCount = mistakes.filter(m => !m.reviewed).length;
+
+  // Group mistakes by subject, then by topic
+  const groupedMistakes = filteredMistakes.reduce((acc, mistake) => {
+    const subjectName = mistake.topic.chapter.subject.name;
+    const topicName = mistake.topic.name;
+    const subjectColor = mistake.topic.chapter.subject.color;
+
+    if (!acc[subjectName]) {
+      acc[subjectName] = { color: subjectColor, topics: {} };
+    }
+    if (!acc[subjectName].topics[topicName]) {
+      acc[subjectName].topics[topicName] = [];
+    }
+    acc[subjectName].topics[topicName].push(mistake);
+    return acc;
+  }, {} as Record<string, { color: string; topics: Record<string, Mistake[]> }>);
 
   if (loading) {
     return (
@@ -160,7 +176,7 @@ const Mistakes = () => {
               </div>
               {unreviewedCount > 0 && (
                 <Badge variant="destructive" className="text-sm">
-                  {unreviewedCount} to review
+                  {unreviewedCount} to fix
                 </Badge>
               )}
             </div>
@@ -182,7 +198,7 @@ const Mistakes = () => {
             onClick={() => setFilter('unreviewed')}
           >
             <RefreshCcw className="w-4 h-4 mr-1" />
-            Unreviewed ({unreviewedCount})
+            Unfixed ({unreviewedCount})
           </Button>
         </div>
 
@@ -202,101 +218,121 @@ const Mistakes = () => {
             </CardContent>
           </Card>
         ) : (
-          <Accordion type="single" collapsible className="space-y-3">
-            {filteredMistakes.map((mistake, index) => (
-              <AccordionItem
-                key={mistake.id}
-                value={mistake.id}
-                className="border-0"
-              >
-                <Card className={`shadow-card border-0 overflow-hidden ${mistake.reviewed ? 'opacity-70' : ''}`}>
-                  <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                    <div className="flex items-start gap-3 text-left">
-                      <div 
-                        className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: `${mistake.topic.chapter.subject.color}20` }}
-                      >
-                        <BookMarked 
-                          className="w-5 h-5" 
-                          style={{ color: mistake.topic.chapter.subject.color }} 
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+          <div className="space-y-6">
+            {Object.entries(groupedMistakes).map(([subjectName, subjectData]) => {
+              const subjectMistakeCount = Object.values(subjectData.topics).flat().length;
+              return (
+                <div key={subjectName} className="space-y-3">
+                  {/* Subject Header */}
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: subjectData.color }}
+                    />
+                    <h2 className="font-display font-semibold text-foreground">
+                      {subjectName}
+                    </h2>
+                    <Badge variant="outline" className="text-xs">
+                      {subjectMistakeCount} {subjectMistakeCount === 1 ? 'mistake' : 'mistakes'}
+                    </Badge>
+                  </div>
+
+                  {/* Topics within Subject */}
+                  {Object.entries(subjectData.topics).map(([topicName, topicMistakes]) => (
+                    <Card key={topicName} className="shadow-card border-0 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-border/50 bg-muted/30">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium text-foreground">{topicName}</p>
                           <Badge 
-                            variant="outline" 
+                            variant="secondary" 
                             className="text-xs"
                             style={{ 
-                              borderColor: mistake.topic.chapter.subject.color, 
-                              color: mistake.topic.chapter.subject.color 
+                              backgroundColor: `${subjectData.color}20`,
+                              color: subjectData.color
                             }}
                           >
-                            {mistake.topic.chapter.subject.name}
+                            {topicMistakes.length}
                           </Badge>
-                          {mistake.reviewed && (
-                            <Badge variant="secondary" className="text-xs bg-success/10 text-success">
-                              <CheckCircle className="w-3 h-3 mr-1" />
-                              Reviewed
-                            </Badge>
-                          )}
                         </div>
-                        <p className="font-medium text-foreground line-clamp-2">
-                          {mistake.question}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {mistake.topic.name}
-                        </p>
                       </div>
-                    </div>
-                  </AccordionTrigger>
-                  
-                  <AccordionContent>
-                    <CardContent className="pt-0 px-4 pb-4">
-                      <div className="space-y-4 ml-13">
-                        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30">
-                          <p className="text-xs text-destructive font-medium mb-1">Your Answer</p>
-                          <p className="text-foreground">{mistake.user_answer}</p>
-                        </div>
-                        
-                        <div className="p-3 rounded-lg bg-success/10 border border-success/30">
-                          <p className="text-xs text-success font-medium mb-1">Correct Answer</p>
-                          <p className="text-foreground">{mistake.correct_answer}</p>
-                        </div>
-                        
-                        {mistake.explanation && (
-                          <div className="p-3 rounded-lg bg-muted">
-                            <p className="text-xs text-muted-foreground font-medium mb-1">Explanation</p>
-                            <p className="text-foreground text-sm">{mistake.explanation}</p>
-                          </div>
-                        )}
-                        
-                        <div className="flex gap-2">
-                          {!mistake.reviewed && (
-                            <Button
-                              variant="success"
-                              size="sm"
-                              className="flex-1"
-                              onClick={() => markAsReviewed(mistake.id)}
-                            >
-                              <CheckCircle className="w-4 h-4 mr-1" />
-                              Mark Reviewed
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => deleteMistake(mistake.id)}
+                      
+                      <Accordion type="single" collapsible className="divide-y divide-border/30">
+                        {topicMistakes.map((mistake) => (
+                          <AccordionItem
+                            key={mistake.id}
+                            value={mistake.id}
+                            className="border-0"
                           >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </AccordionContent>
-                </Card>
-              </AccordionItem>
-            ))}
-          </Accordion>
+                            <AccordionTrigger className={`px-4 py-3 hover:no-underline ${mistake.reviewed ? 'opacity-60' : ''}`}>
+                              <div className="flex items-start gap-3 text-left flex-1">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    {mistake.reviewed && (
+                                      <Badge variant="secondary" className="text-xs bg-success/10 text-success">
+                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                        Fixed
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="font-medium text-foreground line-clamp-2 text-sm">
+                                    {mistake.question}
+                                  </p>
+                                </div>
+                              </div>
+                            </AccordionTrigger>
+                            
+                            <AccordionContent>
+                              <CardContent className="pt-0 px-4 pb-4">
+                                <div className="space-y-4">
+                                  <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+                                    <p className="text-xs text-destructive font-medium mb-1">Your Answer</p>
+                                    <p className="text-foreground">{mistake.user_answer}</p>
+                                  </div>
+                                  
+                                  <div className="p-3 rounded-lg bg-success/10 border border-success/30">
+                                    <p className="text-xs text-success font-medium mb-1">Correct Answer</p>
+                                    <p className="text-foreground">{mistake.correct_answer}</p>
+                                  </div>
+                                  
+                                  {mistake.explanation && (
+                                    <div className="p-3 rounded-lg bg-muted">
+                                      <p className="text-xs text-muted-foreground font-medium mb-1">Explanation</p>
+                                      <p className="text-foreground text-sm">{mistake.explanation}</p>
+                                    </div>
+                                  )}
+                                  
+                                  <div className="flex gap-2">
+                                    {!mistake.reviewed && (
+                                      <Button
+                                        variant="success"
+                                        size="sm"
+                                        className="flex-1"
+                                        onClick={() => markAsReviewed(mistake.id)}
+                                      >
+                                        <CheckCircle className="w-4 h-4 mr-1" />
+                                        Mark as Fixed
+                                      </Button>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => deleteMistake(mistake.id)}
+                                    >
+                                      <Trash2 className="w-4 h-4 text-destructive" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </AccordionContent>
+                          </AccordionItem>
+                        ))}
+                      </Accordion>
+                    </Card>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </AppLayout>
