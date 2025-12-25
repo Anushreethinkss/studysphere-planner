@@ -80,7 +80,7 @@ const Plan = () => {
       setLoading(true);
       fetchData();
     }
-  }, [user, location.key]);
+  }, [user, location.key, location.state]);
 
   const fetchData = async () => {
     if (!user) return;
