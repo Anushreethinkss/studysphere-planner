@@ -290,41 +290,43 @@ const Revision = () => {
             </div>
           </div>
           
-          {!showDate && (
-            <div className="flex flex-col gap-2 shrink-0">
-              <Button 
-                variant="accent" 
-                size="sm"
-                onClick={() => handleStartRevision(task)}
-                disabled={completingTask === task.id}
-              >
-                {completingTask === task.id ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : task.require_quiz ? (
-                  <>
-                    <Play className="w-4 h-4 mr-1" />
-                    Start Quiz
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4 mr-1" />
-                    Start Revision
-                  </>
-                )}
-              </Button>
-              {!task.require_quiz && (
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => handleMarkComplete(task)}
-                  disabled={completingTask === task.id}
-                >
-                  <CheckCircle2 className="w-4 h-4 mr-1" />
-                  Mark Complete
-                </Button>
+          <div className="flex flex-col gap-2 shrink-0">
+            <Button 
+              variant="accent" 
+              size="sm"
+              onClick={() => handleStartRevision(task)}
+              disabled={completingTask === task.id}
+            >
+              {completingTask === task.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : task.require_quiz ? (
+                <>
+                  <Play className="w-4 h-4 mr-1" />
+                  Start Quiz
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-1" />
+                  Start Revision
+                </>
               )}
-            </div>
-          )}
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => handleMarkComplete(task)}
+              disabled={completingTask === task.id}
+            >
+              {completingTask === task.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 mr-1" />
+                  Mark Done
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
