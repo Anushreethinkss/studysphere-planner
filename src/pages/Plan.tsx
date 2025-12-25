@@ -347,7 +347,8 @@ const Plan = () => {
             </Card>
           ) : (
             todayTopics.map((topic, index) => {
-              const isCompleted = completedToday.has(topic.id) || (topic.status && topic.status !== 'pending');
+              // Topic is completed only if it has a non-pending status (strong, weak, needs_revision)
+              const isCompleted = topic.status === 'strong' || topic.status === 'weak' || topic.status === 'needs_revision';
               const estimatedMinutes = Math.round((profile?.daily_study_hours || 2) * 60 / todayTopics.length);
 
               return (
@@ -406,23 +407,23 @@ const Plan = () => {
                         )}
                       </div>
                       
-                      {!isCompleted ? (
-                        <Button 
-                          variant="accent" 
-                          size="sm"
-                          onClick={() => handleCompleteTopic(topic.id)}
-                          className="shrink-0"
-                        >
-                          <CheckCircle2 className="w-4 h-4 mr-1" />
-                          Mark Complete
-                        </Button>
-                      ) : (
+                      {isCompleted ? (
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           <Badge className="bg-success/10 text-success border-success/30">
                             <CheckCircle2 className="w-3 h-3 mr-1" />
                             Completed
                           </Badge>
                         </div>
+                      ) : (
+                        <Button 
+                          variant="accent" 
+                          size="sm"
+                          onClick={() => handleCompleteTopic(topic.id)}
+                          className="shrink-0 rounded-xl"
+                        >
+                          <CheckCircle2 className="w-4 h-4 mr-1" />
+                          Mark Complete
+                        </Button>
                       )}
                     </div>
                   </CardContent>
