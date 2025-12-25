@@ -36,22 +36,23 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
         </Label>
         <Textarea
           id="syllabus-text"
-          placeholder={`Example format:
+          placeholder={`Example format (subjects auto-detected):
 
-Chapter 1: Introduction to Physics
-- Motion and Rest
-- Distance and Displacement
-- Speed and Velocity
+Hindi:
+Chapter 1 – अपठित गद्यांश
+- गद्यांश पढ़ना
+- प्रश्न उत्तर
 
-Chapter 2: Force and Laws of Motion
-- Newton's First Law
-- Newton's Second Law
-- Newton's Third Law
+English:
+Chapter 1 – A Letter to God
+- Reading Comprehension
+- Vocabulary
+- Q&A
 
-Chapter 3: Gravitation
-- Universal Law of Gravitation
-- Free Fall
-- Weight and Mass`}
+Science:
+Chapter 1 – Chemical Reactions
+- Types of Reactions
+- Balancing Equations`}
           value={value}
           onChange={handleTextChange}
           className="min-h-[300px] font-mono text-sm"
@@ -60,7 +61,7 @@ Chapter 3: Gravitation
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Sparkles className="w-4 h-4 text-accent" />
-        <span>Use "Chapter" for headings and "-" for topics</span>
+        <span>Use "Subject:" for subjects, "Chapter" for chapters, and "-" for topics</span>
       </div>
     </div>
   );
