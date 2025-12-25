@@ -6,7 +6,7 @@ const BottomNav = () => {
   const navigate = useNavigate();
 
   const navItems = [
-    { path: '/plan', icon: Home, label: 'Home' },
+    { path: '/dashboard', icon: Home, label: 'Home' },
     { path: '/revision', icon: RefreshCw, label: 'Revision' },
     { path: '/progress', icon: BarChart3, label: 'Progress' },
     { path: '/calendar', icon: Calendar, label: 'Calendar' },
