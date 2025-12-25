@@ -41,17 +41,16 @@ const Index = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-background overflow-hidden">
+    <div className="min-h-screen bg-background">
       {/* Hero Section */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-primary" />
-        <div className="absolute inset-0 opacity-20">
+      <div className="bg-gradient-primary relative">
+        <div className="absolute inset-0 opacity-20 overflow-hidden">
           <div className="absolute top-20 left-10 w-32 h-32 rounded-full bg-accent animate-float" />
           <div className="absolute top-40 right-20 w-20 h-20 rounded-full bg-accent/50 animate-float" style={{ animationDelay: '1s' }} />
           <div className="absolute bottom-20 left-1/3 w-16 h-16 rounded-full bg-accent/30 animate-float" style={{ animationDelay: '2s' }} />
         </div>
         
-        <div className="relative px-6 py-12 pb-24 text-center">
+        <div className="relative px-6 py-12 pb-16 text-center">
           {/* Logo */}
           <div className="inline-flex items-center gap-3 mb-8 animate-fade-up">
             <div className="w-16 h-16 rounded-2xl bg-accent flex items-center justify-center shadow-glow">
@@ -83,7 +82,7 @@ const Index = () => {
       </div>
 
       {/* Features Section */}
-      <div className="px-6 -mt-12 pb-16">
+      <div className="px-6 py-12">
         <div className="max-w-lg mx-auto space-y-4">
           {features.map((feature, index) => {
             const Icon = feature.icon;
