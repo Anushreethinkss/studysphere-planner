@@ -28,6 +28,7 @@ interface Topic {
       id: string;
       name: string;
       color: string;
+      difficulty: string | null;
     };
   };
 }
@@ -50,18 +51,14 @@ interface SubjectDistribution {
 
 const AVERAGE_TOPIC_MINUTES = 30;
 
-const getSubjectWeight = (topics: Topic[]): number => {
-  // Calculate average confidence for a subject's topics
-  const confidenceLevels = topics.map(t => t.confidence).filter(Boolean);
-  if (confidenceLevels.length === 0) return 1.0; // Default: medium weight
-  
-  const strongCount = confidenceLevels.filter(c => c === 'strong').length;
-  const weakCount = confidenceLevels.filter(c => c === 'weak').length;
-  const mediumCount = confidenceLevels.length - strongCount - weakCount;
-  
-  // Weighted average: strong=0.8, medium=1.0, weak=1.5
-  const totalWeight = (strongCount * 0.8) + (mediumCount * 1.0) + (weakCount * 1.5);
-  return totalWeight / confidenceLevels.length;
+// Subject difficulty weights: weak subjects get more topics
+const getDifficultyWeight = (difficulty: string | null): number => {
+  switch (difficulty) {
+    case 'weak': return 1.6;
+    case 'strong': return 0.6;
+    case 'medium':
+    default: return 1.0;
+  }
 };
 
 const Plan = () => {
@@ -94,25 +91,26 @@ const Plan = () => {
     }
 
     // Group pending topics by subject
-    const subjectGroups = new Map<string, { topics: Topic[]; name: string; color: string }>();
+    const subjectGroups = new Map<string, { topics: Topic[]; name: string; color: string; difficulty: string | null }>();
     pendingTopics.forEach(topic => {
       const subjectId = topic.chapter.subject.id;
       if (!subjectGroups.has(subjectId)) {
         subjectGroups.set(subjectId, {
           topics: [],
           name: topic.chapter.subject.name,
-          color: topic.chapter.subject.color
+          color: topic.chapter.subject.color,
+          difficulty: topic.chapter.subject.difficulty
         });
       }
       subjectGroups.get(subjectId)!.topics.push(topic);
     });
 
-    // Calculate weights for each subject
+    // Calculate weights for each subject based on difficulty
     const subjectWeights: { subjectId: string; name: string; color: string; weight: number; topics: Topic[] }[] = [];
     let totalWeight = 0;
 
     subjectGroups.forEach((group, subjectId) => {
-      const weight = getSubjectWeight(group.topics);
+      const weight = getDifficultyWeight(group.difficulty);
       totalWeight += weight;
       subjectWeights.push({
         subjectId,
@@ -207,7 +205,8 @@ const Plan = () => {
             subject:subjects (
               id,
               name,
-              color
+              color,
+              difficulty
             )
           )
         `)
@@ -394,12 +393,12 @@ const Plan = () => {
         {subjectDistribution.length > 0 && (
           <Card className="shadow-card border-0">
             <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Zap className="w-5 h-5 text-accent" />
+              <div className="flex items-start gap-2 mb-3">
+                <Zap className="w-5 h-5 text-accent shrink-0 mt-0.5" />
                 <p className="font-semibold text-foreground">
-                  Today you can finish {todayTopics.length} topics
+                  ⚡ Based on your time and weakness preference, we scheduled {todayTopics.length} topics
                   <span className="text-muted-foreground font-normal">
-                    {' '}(~{Math.round((todayTopics.length * AVERAGE_TOPIC_MINUTES) / 60 * 10) / 10} hours)
+                    {' '}(~{Math.round((todayTopics.length * AVERAGE_TOPIC_MINUTES) / 60 * 10) / 10} hrs)
                   </span>
                 </p>
               </div>
