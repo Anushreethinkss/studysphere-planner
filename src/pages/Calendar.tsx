@@ -103,26 +103,28 @@ const CalendarPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-10 h-10 text-primary animate-spin" />
-      </div>
+      <AppLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="w-10 h-10 text-primary animate-spin" />
+        </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background pb-24">
-      {/* Header */}
-      <header className="bg-gradient-primary text-primary-foreground p-6 rounded-b-3xl">
-        <h1 className="text-2xl font-display font-bold flex items-center gap-2">
-          <CalendarIcon className="w-6 h-6" />
-          Study Calendar
-        </h1>
-        <p className="text-primary-foreground/70 mt-1">Plan your learning journey</p>
-      </header>
+    <AppLayout>
+      <div className="p-4 md:p-6 space-y-4">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-display font-bold text-foreground flex items-center gap-2">
+            <CalendarIcon className="w-6 h-6 text-accent" />
+            Study Calendar
+          </h1>
+          <p className="text-muted-foreground mt-1">Plan your learning journey</p>
+        </div>
 
-      <div className="px-4 -mt-6 space-y-4">
         {/* Calendar Card */}
-        <Card className="shadow-card border-0 animate-fade-up">
+        <Card className="shadow-card border-0">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <Button
@@ -207,7 +209,7 @@ const CalendarPage = () => {
         </Card>
 
         {/* Selected Date Tasks */}
-        <Card className="shadow-card border-0 animate-fade-up" style={{ animationDelay: '0.1s' }}>
+        <Card className="shadow-card border-0">
           <CardHeader>
             <CardTitle className="font-display text-lg">
               {format(selectedDate, 'EEEE, MMMM d')}
@@ -276,9 +278,7 @@ const CalendarPage = () => {
           </CardContent>
         </Card>
       </div>
-
-      <BottomNav />
-    </div>
+    </AppLayout>
   );
 };
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -125,9 +125,11 @@ const Mistakes = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-10 h-10 text-primary animate-spin" />
-      </div>
+      <AppLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="w-10 h-10 text-primary animate-spin" />
+        </div>
+      </AppLayout>
     );
   }
 
@@ -143,9 +145,8 @@ const Mistakes = () => {
           <p className="text-muted-foreground mt-1">Learn from your errors</p>
         </div>
 
-      <div className="px-4 -mt-6 space-y-4">
         {/* Stats Card */}
-        <Card className="shadow-card border-0 animate-fade-up">
+        <Card className="shadow-card border-0">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -206,8 +207,7 @@ const Mistakes = () => {
               <AccordionItem
                 key={mistake.id}
                 value={mistake.id}
-                className="border-0 animate-fade-up"
-                style={{ animationDelay: `${index * 0.05}s` }}
+                className="border-0"
               >
                 <Card className={`shadow-card border-0 overflow-hidden ${mistake.reviewed ? 'opacity-70' : ''}`}>
                   <AccordionTrigger className="px-4 py-3 hover:no-underline">
@@ -253,19 +253,16 @@ const Mistakes = () => {
                   <AccordionContent>
                     <CardContent className="pt-0 px-4 pb-4">
                       <div className="space-y-4 ml-13">
-                        {/* Your Answer */}
                         <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30">
                           <p className="text-xs text-destructive font-medium mb-1">Your Answer</p>
                           <p className="text-foreground">{mistake.user_answer}</p>
                         </div>
                         
-                        {/* Correct Answer */}
                         <div className="p-3 rounded-lg bg-success/10 border border-success/30">
                           <p className="text-xs text-success font-medium mb-1">Correct Answer</p>
                           <p className="text-foreground">{mistake.correct_answer}</p>
                         </div>
                         
-                        {/* Explanation */}
                         {mistake.explanation && (
                           <div className="p-3 rounded-lg bg-muted">
                             <p className="text-xs text-muted-foreground font-medium mb-1">Explanation</p>
@@ -273,7 +270,6 @@ const Mistakes = () => {
                           </div>
                         )}
                         
-                        {/* Actions */}
                         <div className="flex gap-2">
                           {!mistake.reviewed && (
                             <Button
