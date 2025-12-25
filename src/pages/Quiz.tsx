@@ -279,38 +279,60 @@ const Quiz = () => {
         console.error('Error creating study task:', taskError);
       }
 
-      // Schedule revision based on status
+      // Schedule revision based on status - check for duplicates first
       const todayDate = new Date();
-      let revisionDates: Date[] = [];
+      let revisionDates: { date: Date; requireQuiz: boolean }[] = [];
 
       if (status === 'strong') {
         revisionDates = [
-          new Date(todayDate.getTime() + 7 * 24 * 60 * 60 * 1000),
-          new Date(todayDate.getTime() + 21 * 24 * 60 * 60 * 1000),
+          { date: new Date(todayDate.getTime() + 7 * 24 * 60 * 60 * 1000), requireQuiz: false },
+          { date: new Date(todayDate.getTime() + 21 * 24 * 60 * 60 * 1000), requireQuiz: false },
         ];
       } else if (status === 'needs_revision') {
         revisionDates = [
-          new Date(todayDate.getTime() + 3 * 24 * 60 * 60 * 1000),
-          new Date(todayDate.getTime() + 7 * 24 * 60 * 60 * 1000),
+          { date: new Date(todayDate.getTime() + 3 * 24 * 60 * 60 * 1000), requireQuiz: false },
+          { date: new Date(todayDate.getTime() + 7 * 24 * 60 * 60 * 1000), requireQuiz: false },
         ];
       } else {
         revisionDates = [
-          new Date(todayDate.getTime() + 1 * 24 * 60 * 60 * 1000),
+          { date: new Date(todayDate.getTime() + 1 * 24 * 60 * 60 * 1000), requireQuiz: true },
         ];
       }
 
-      const revisionTasks = revisionDates.map((date, index) => ({
-        user_id: user.id,
-        topic_id: topicId,
-        scheduled_date: date.toISOString().split('T')[0],
-        duration_minutes: 20,
-        task_type: 'revision' as const,
-        require_quiz: status === 'weak', // Weak topics require a quiz on revision
-      }));
+      // Check for existing revision tasks to prevent duplicates
+      const scheduledDates = revisionDates.map(r => r.date.toISOString().split('T')[0]);
+      
+      const { data: existingTasks } = await supabase
+        .from('study_tasks')
+        .select('scheduled_date')
+        .eq('user_id', user.id)
+        .eq('topic_id', topicId)
+        .eq('task_type', 'revision')
+        .in('scheduled_date', scheduledDates);
 
-      const { error: revisionError } = await supabase.from('study_tasks').insert(revisionTasks);
-      if (revisionError) {
-        console.error('Error scheduling revisions:', revisionError);
+      const existingDates = new Set(existingTasks?.map(t => t.scheduled_date) || []);
+
+      // Only insert tasks that don't already exist
+      const newRevisionTasks = revisionDates
+        .filter(r => !existingDates.has(r.date.toISOString().split('T')[0]))
+        .map(r => ({
+          user_id: user.id,
+          topic_id: topicId,
+          scheduled_date: r.date.toISOString().split('T')[0],
+          duration_minutes: 20,
+          task_type: 'revision' as const,
+          require_quiz: r.requireQuiz,
+        }));
+
+      if (newRevisionTasks.length > 0) {
+        const { error: revisionError } = await supabase.from('study_tasks').insert(newRevisionTasks);
+        if (revisionError) {
+          console.error('Error scheduling revisions:', revisionError);
+        } else {
+          console.log(`Scheduled ${newRevisionTasks.length} new revision tasks`);
+        }
+      } else {
+        console.log('Revision tasks already exist, skipping duplicate creation');
       }
 
       // Update streak
