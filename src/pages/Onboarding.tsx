@@ -56,29 +56,33 @@ const Onboarding = () => {
   }
 
   const parseSyllabus = (text: string): ParsedSubject[] => {
-    const lines = text.split('\n').filter(line => line.trim());
+    const lines = text.split('\n');
     const parsedSubjects: ParsedSubject[] = [];
     
     let currentSubject: ParsedSubject | null = null;
     let currentChapter: ParsedChapter | null = null;
     let colorIndex = 0;
 
-    lines.forEach(line => {
+    for (const line of lines) {
       const trimmed = line.trim();
       
-      // Check if it's a subject line (ends with ":")
-      // e.g., "Hindi:", "English:", "Science:", "Math:"
-      if (/^[A-Za-z\u0900-\u097F\s]+:$/.test(trimmed)) {
-        // Save previous chapter to previous subject
+      // Skip blank lines
+      if (!trimmed) continue;
+      
+      // Rule 1: Line ending with ":" starts a new subject
+      // e.g., "Hindi:", "English:", "Science:", "गणित:"
+      if (trimmed.endsWith(':') && !trimmed.startsWith('-')) {
+        // Save current chapter to current subject before switching
         if (currentChapter && currentChapter.topics.length > 0 && currentSubject) {
           currentSubject.chapters.push(currentChapter);
+          currentChapter = null;
         }
-        // Save previous subject
+        // Save current subject before starting new one
         if (currentSubject && currentSubject.chapters.length > 0) {
           parsedSubjects.push(currentSubject);
         }
         
-        const subjectName = trimmed.replace(/:$/, '').trim();
+        const subjectName = trimmed.slice(0, -1).trim(); // Remove trailing ":"
         currentSubject = {
           name: subjectName,
           color: SUBJECT_COLORS[colorIndex % SUBJECT_COLORS.length],
@@ -86,22 +90,23 @@ const Onboarding = () => {
         };
         colorIndex++;
         currentChapter = null;
+        continue;
       }
-      // Check if it's a chapter line
-      else if (/^(chapter|unit|\d+\.|\d+\))/i.test(trimmed) || 
-          (trimmed === trimmed.toUpperCase() && trimmed.length > 3 && !trimmed.startsWith('-') && !trimmed.endsWith(':'))) {
-        // Save previous chapter
+      
+      // Rule 2: Line starting with "Chapter" creates a new chapter
+      if (/^chapter/i.test(trimmed)) {
+        // Save current chapter before starting new one
         if (currentChapter && currentChapter.topics.length > 0 && currentSubject) {
           currentSubject.chapters.push(currentChapter);
         }
         
+        // Extract chapter name (remove "Chapter X - " or "Chapter X: " etc.)
         const chapterName = trimmed
-          .replace(/^(chapter|unit)\s*\d*[:.–\-)\s]*/i, '')
-          .replace(/^\d+[.:–\-)\s]+/, '')
-          .trim();
+          .replace(/^chapter\s*\d*\s*[-–:.)\s]*/i, '')
+          .trim() || trimmed;
         
         currentChapter = { 
-          name: chapterName || `Chapter ${(currentSubject?.chapters.length || 0) + 1}`, 
+          name: chapterName, 
           topics: [] 
         };
         
@@ -112,30 +117,33 @@ const Onboarding = () => {
             color: subjects.length > 0 ? subjects[0].color : SUBJECT_COLORS[0],
             chapters: []
           };
+          colorIndex++;
         }
+        continue;
       }
-      // Check if it's a topic line (starts with -, •, *)
-      else if (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*')) {
-        const topicName = trimmed.replace(/^[-•*\s]+/, '').trim();
+      
+      // Rule 3: Line starting with "-" creates a topic under current chapter
+      if (trimmed.startsWith('-')) {
+        const topicName = trimmed.slice(1).trim(); // Remove leading "-"
         if (topicName) {
+          // Create default chapter if none exists
           if (!currentChapter) {
             currentChapter = { name: 'Chapter 1', topics: [] };
           }
+          // Create default subject if none exists
           if (!currentSubject) {
             currentSubject = {
               name: subjects.length > 0 ? subjects[0].name : 'General',
               color: subjects.length > 0 ? subjects[0].color : SUBJECT_COLORS[0],
               chapters: []
             };
+            colorIndex++;
           }
           currentChapter.topics.push(topicName);
         }
+        continue;
       }
-      // Other non-empty lines could be topics too
-      else if (currentChapter && trimmed && !trimmed.match(/^(chapter|unit)/i) && !trimmed.endsWith(':')) {
-        currentChapter.topics.push(trimmed.replace(/^[-•*\d.)\s]+/, '').trim());
-      }
-    });
+    }
 
     // Don't forget the last chapter and subject
     if (currentChapter && currentChapter.topics.length > 0 && currentSubject) {
@@ -143,48 +151,6 @@ const Onboarding = () => {
     }
     if (currentSubject && currentSubject.chapters.length > 0) {
       parsedSubjects.push(currentSubject);
-    }
-
-    // If no subjects detected but we have manually added subjects, use those
-    if (parsedSubjects.length === 0 && subjects.length > 0) {
-      // Fall back to old behavior: parse chapters/topics and apply to first subject
-      const chapters: ParsedChapter[] = [];
-      let fallbackChapter: ParsedChapter | null = null;
-      
-      lines.forEach(line => {
-        const trimmed = line.trim();
-        if (/^(chapter|unit|\d+\.|\d+\))/i.test(trimmed)) {
-          if (fallbackChapter && fallbackChapter.topics.length > 0) {
-            chapters.push(fallbackChapter);
-          }
-          const chapterName = trimmed
-            .replace(/^(chapter|unit)\s*\d*[:.–\-)\s]*/i, '')
-            .replace(/^\d+[.:–\-)\s]+/, '')
-            .trim();
-          fallbackChapter = { name: chapterName || `Chapter ${chapters.length + 1}`, topics: [] };
-        } else if (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*')) {
-          const topicName = trimmed.replace(/^[-•*\s]+/, '').trim();
-          if (topicName) {
-            if (!fallbackChapter) fallbackChapter = { name: 'Chapter 1', topics: [] };
-            fallbackChapter.topics.push(topicName);
-          }
-        }
-      });
-      
-      if (fallbackChapter && fallbackChapter.topics.length > 0) {
-        chapters.push(fallbackChapter);
-      }
-
-      // Distribute chapters across subjects
-      if (chapters.length > 0) {
-        subjects.forEach((subject, idx) => {
-          parsedSubjects.push({
-            name: subject.name,
-            color: subject.color,
-            chapters: idx === 0 ? chapters : [] // Only first subject gets the chapters
-          });
-        });
-      }
     }
 
     return parsedSubjects;
