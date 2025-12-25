@@ -12,6 +12,7 @@ import {
   RefreshCw, AlertTriangle, Sparkles, Calendar, Play
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import RevisionModal from '@/components/RevisionModal';
 
 interface RevisionTask {
   id: string;
@@ -48,6 +49,8 @@ const Revision = () => {
   const [upcomingTasks, setUpcomingTasks] = useState<RevisionTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [completingTask, setCompletingTask] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<RevisionTask | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
   
   const { user } = useAuth();
   const { toast } = useToast();
@@ -157,8 +160,17 @@ const Revision = () => {
     if (task.require_quiz) {
       navigate(`/quiz/${task.topic.id}`);
     } else {
-      // For non-quiz revisions, also go to quiz for spaced repetition
-      navigate(`/quiz/${task.topic.id}`);
+      // For non-quiz revisions, open the revision modal
+      setSelectedTask(task);
+      setModalOpen(true);
+    }
+  };
+
+  const handleModalComplete = async () => {
+    if (selectedTask) {
+      await handleMarkComplete(selectedTask);
+      setModalOpen(false);
+      setSelectedTask(null);
     }
   };
 
@@ -424,6 +436,19 @@ const Revision = () => {
             </h2>
             {renderGroupedTasks(groupedUpcomingTasks, true)}
           </div>
+        )}
+
+        {/* Revision Modal */}
+        {selectedTask && (
+          <RevisionModal
+            isOpen={modalOpen}
+            onClose={() => {
+              setModalOpen(false);
+              setSelectedTask(null);
+            }}
+            onComplete={handleModalComplete}
+            topic={selectedTask.topic}
+          />
         )}
       </div>
     </AppLayout>
