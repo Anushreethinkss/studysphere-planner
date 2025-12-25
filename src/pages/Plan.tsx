@@ -125,27 +125,45 @@ const Plan = () => {
 
       setAllTopics(sortedTopics);
 
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Get topics completed today (from study_tasks)
+      const { data: todayTasks } = await supabase
+        .from('study_tasks')
+        .select('topic_id, is_completed')
+        .eq('user_id', user.id)
+        .eq('scheduled_date', today)
+        .eq('task_type', 'study');
+
+      const completedTodayIds = new Set(
+        todayTasks?.filter(t => t.is_completed).map(t => t.topic_id) || []
+      );
+      const todayTaskTopicIds = new Set(todayTasks?.map(t => t.topic_id) || []);
+      
+      setCompletedToday(completedTodayIds);
+
+      // Get topics that were completed today (have completed_at date of today)
+      const todayCompletedTopics = sortedTopics.filter(t => {
+        if (t.status && t.status !== 'pending') {
+          // Check if topic was in today's tasks
+          return todayTaskTopicIds.has(t.id);
+        }
+        return false;
+      });
+
       const topicsPerDay = calculateDailyTopics(
         sortedTopics,
         profileData?.exam_date || null,
         profileData?.daily_study_hours || 2
       );
 
+      // Get pending topics for today
       const pendingTopics = sortedTopics.filter(t => t.status === 'pending' || !t.status);
-      const dailyTopics = pendingTopics.slice(0, topicsPerDay);
+      const pendingDailyTopics = pendingTopics.slice(0, Math.max(0, topicsPerDay - todayCompletedTopics.length));
+      
+      // Combine: pending topics first, then completed topics at the bottom
+      const dailyTopics = [...pendingDailyTopics, ...todayCompletedTopics];
       setTodayTopics(dailyTopics);
-
-      const today = new Date().toISOString().split('T')[0];
-      const { data: completedTasks } = await supabase
-        .from('study_tasks')
-        .select('topic_id')
-        .eq('user_id', user.id)
-        .eq('scheduled_date', today)
-        .eq('is_completed', true);
-
-      if (completedTasks) {
-        setCompletedToday(new Set(completedTasks.map(t => t.topic_id)));
-      }
 
       // Fetch revisions due today
       const { data: revisionTasks } = await supabase
@@ -336,15 +354,17 @@ const Plan = () => {
                 <Card 
                   key={topic.id} 
                   className={`shadow-card border-0 transition-all duration-300 animate-fade-up ${
-                    isCompleted ? 'opacity-60' : ''
+                    isCompleted ? 'bg-muted/50 border border-success/20' : ''
                   }`}
                   style={{ animationDelay: `${index * 0.05}s` }}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-4">
                       <div 
-                        className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: `${topic.chapter.subject.color}20` }}
+                        className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+                          isCompleted ? 'bg-success/20' : ''
+                        }`}
+                        style={{ backgroundColor: isCompleted ? undefined : `${topic.chapter.subject.color}20` }}
                       >
                         {isCompleted ? (
                           <CheckCircle2 className="w-6 h-6 text-success" />
@@ -360,7 +380,7 @@ const Plan = () => {
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <Badge 
                             variant="outline" 
-                            className="text-xs"
+                            className={`text-xs ${isCompleted ? 'opacity-60' : ''}`}
                             style={{ 
                               borderColor: topic.chapter.subject.color, 
                               color: topic.chapter.subject.color 
@@ -370,16 +390,20 @@ const Plan = () => {
                           </Badge>
                           {isCompleted && getStatusBadge(topic.status)}
                         </div>
-                        <p className={`font-semibold text-foreground ${isCompleted ? 'line-through' : ''}`}>
+                        <p className={`font-semibold ${isCompleted ? 'text-muted-foreground' : 'text-foreground'}`}>
                           {topic.name}
                         </p>
-                        <p className="text-sm text-muted-foreground">{topic.chapter.name}</p>
-                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            ~{estimatedMinutes} mins
-                          </span>
-                        </div>
+                        <p className={`text-sm ${isCompleted ? 'text-muted-foreground/70' : 'text-muted-foreground'}`}>
+                          {topic.chapter.name}
+                        </p>
+                        {!isCompleted && (
+                          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              ~{estimatedMinutes} mins
+                            </span>
+                          </div>
+                        )}
                       </div>
                       
                       {!isCompleted ? (
@@ -393,9 +417,12 @@ const Plan = () => {
                           Mark Complete
                         </Button>
                       ) : (
-                        <Badge variant="outline" className="text-success border-success shrink-0">
-                          ✓ Done
-                        </Badge>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <Badge className="bg-success/10 text-success border-success/30">
+                            <CheckCircle2 className="w-3 h-3 mr-1" />
+                            Completed
+                          </Badge>
+                        </div>
                       )}
                     </div>
                   </CardContent>
@@ -405,7 +432,7 @@ const Plan = () => {
           )}
 
           {/* Study Ahead Button */}
-          {todayTopics.length > 0 && completedCount === todayTopics.length && (
+          {todayTopics.length > 0 && (
             <div className="text-center pt-4">
               <Button variant="outline" onClick={pullNextTopic}>
                 <Brain className="w-4 h-4 mr-2" />
