@@ -299,12 +299,13 @@ const Quiz = () => {
         ];
       }
 
-      const revisionTasks = revisionDates.map(date => ({
+      const revisionTasks = revisionDates.map((date, index) => ({
         user_id: user.id,
         topic_id: topicId,
         scheduled_date: date.toISOString().split('T')[0],
         duration_minutes: 20,
         task_type: 'revision' as const,
+        require_quiz: status === 'weak', // Weak topics require a quiz on revision
       }));
 
       const { error: revisionError } = await supabase.from('study_tasks').insert(revisionTasks);

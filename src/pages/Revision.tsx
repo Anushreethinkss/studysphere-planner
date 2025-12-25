@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,10 +9,8 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { 
   BookOpen, Clock, CheckCircle2, Loader2, 
-  RefreshCw, AlertTriangle, Sparkles, Calendar
+  RefreshCw, AlertTriangle, Sparkles, Calendar, Play
 } from 'lucide-react';
-import QuizModal from '@/components/QuizModal';
-import ConfidenceModal from '@/components/ConfidenceModal';
 import AppLayout from '@/components/AppLayout';
 
 interface RevisionTask {
@@ -19,6 +18,7 @@ interface RevisionTask {
   scheduled_date: string;
   task_type: string;
   is_completed: boolean;
+  require_quiz: boolean | null;
   topic: {
     id: string;
     name: string;
@@ -36,19 +36,21 @@ interface RevisionTask {
   };
 }
 
+interface GroupedTasks {
+  [subjectName: string]: {
+    color: string;
+    tasks: RevisionTask[];
+  };
+}
+
 const Revision = () => {
   const [tasks, setTasks] = useState<RevisionTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [completingTask, setCompletingTask] = useState<string | null>(null);
   
-  // Quiz state
-  const [showQuiz, setShowQuiz] = useState(false);
-  const [quizTask, setQuizTask] = useState<RevisionTask | null>(null);
-  const [quizScore, setQuizScore] = useState<number | null>(null);
-  const [showConfidence, setShowConfidence] = useState(false);
-  
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (user) {
@@ -69,6 +71,7 @@ const Revision = () => {
           scheduled_date,
           task_type,
           is_completed,
+          require_quiz,
           topic:topics (
             id,
             name,
@@ -87,6 +90,7 @@ const Revision = () => {
         `)
         .eq('user_id', user.id)
         .eq('task_type', 'revision')
+        .eq('is_completed', false)
         .lte('scheduled_date', today)
         .order('scheduled_date', { ascending: true });
 
@@ -113,107 +117,76 @@ const Revision = () => {
   };
 
   const handleStartRevision = (task: RevisionTask) => {
+    // If require_quiz is true, redirect to quiz page
+    if (task.require_quiz) {
+      navigate(`/quiz/${task.topic.id}`);
+    } else {
+      // For non-quiz revisions, also go to quiz for spaced repetition
+      navigate(`/quiz/${task.topic.id}`);
+    }
+  };
+
+  const handleMarkComplete = async (task: RevisionTask) => {
+    if (!user) return;
+    
     setCompletingTask(task.id);
-    setQuizTask(task);
-    setShowQuiz(true);
-  };
-
-  const handleQuizComplete = (score: number, quizId: string) => {
-    setShowQuiz(false);
-    setQuizScore(score);
-    setShowConfidence(true);
-  };
-
-  const handleConfidenceSubmit = async (confidence: 'high' | 'medium' | 'low') => {
-    if (!quizTask || !user || quizScore === null) return;
-
+    
     try {
-      // Determine new status based on score and confidence
-      let status: string;
-      if (quizScore >= 80 && confidence === 'high') {
-        status = 'strong';
-      } else if (quizScore >= 50 || confidence === 'medium') {
-        status = 'needs_revision';
-      } else {
-        status = 'weak';
-      }
-
-      // Update topic status
-      await supabase
-        .from('topics')
-        .update({
-          status,
-          confidence,
-          last_quiz_score: quizScore,
-        })
-        .eq('id', quizTask.topic.id);
-
       // Mark task as completed
-      await supabase
+      const { error } = await supabase
         .from('study_tasks')
         .update({
           is_completed: true,
           completed_at: new Date().toISOString(),
         })
-        .eq('id', quizTask.id);
+        .eq('id', task.id)
+        .eq('user_id', user.id);
 
-      // Schedule new revisions based on updated status
-      const todayDate = new Date();
-      let revisionDates: Date[] = [];
-
-      if (status === 'strong') {
-        revisionDates = [
-          new Date(todayDate.getTime() + 7 * 24 * 60 * 60 * 1000),
-          new Date(todayDate.getTime() + 21 * 24 * 60 * 60 * 1000),
-        ];
-      } else if (status === 'needs_revision') {
-        revisionDates = [
-          new Date(todayDate.getTime() + 3 * 24 * 60 * 60 * 1000),
-          new Date(todayDate.getTime() + 7 * 24 * 60 * 60 * 1000),
-        ];
-      } else {
-        // Weak: revision tomorrow with re-quiz
-        revisionDates = [
-          new Date(todayDate.getTime() + 1 * 24 * 60 * 60 * 1000),
-        ];
-      }
-
-      const revisionTasks = revisionDates.map(date => ({
-        user_id: user.id,
-        topic_id: quizTask.topic.id,
-        scheduled_date: date.toISOString().split('T')[0],
-        duration_minutes: 20,
-        task_type: 'revision' as const,
-      }));
-
-      await supabase.from('study_tasks').insert(revisionTasks);
+      if (error) throw error;
 
       toast({
-        title: status === 'weak' 
-          ? "Keep practicing! Re-learn scheduled for tomorrow." 
-          : "Great job! Revision complete.",
-        description: `Status: ${status.replace('_', ' ')}`,
+        title: 'Revision completed!',
+        description: `${task.topic.name} marked as done.`,
       });
 
-      fetchTasks();
+      // Remove from local state
+      setTasks(prev => prev.filter(t => t.id !== task.id));
     } catch (error) {
       console.error('Error completing revision:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to save revision progress.',
+        description: 'Failed to complete revision.',
       });
     } finally {
-      setShowConfidence(false);
-      setQuizTask(null);
-      setQuizScore(null);
       setCompletingTask(null);
     }
   };
 
-  const pendingTasks = tasks.filter(t => !t.is_completed);
-  const completedTasks = tasks.filter(t => t.is_completed);
-  const progressPercent = tasks.length > 0 ? (completedTasks.length / tasks.length) * 100 : 0;
+  // Group tasks by subject
+  const groupTasksBySubject = (taskList: RevisionTask[]): GroupedTasks => {
+    return taskList.reduce((acc, task) => {
+      const subjectName = task.topic.chapter.subject.name;
+      if (!acc[subjectName]) {
+        acc[subjectName] = {
+          color: task.topic.chapter.subject.color,
+          tasks: [],
+        };
+      }
+      acc[subjectName].tasks.push(task);
+      return acc;
+    }, {} as GroupedTasks);
+  };
+
+  // Separate tasks due today vs overdue
+  const today = new Date().toISOString().split('T')[0];
+  const todayTasks = tasks.filter(t => t.scheduled_date === today);
+  const overdueTasks = tasks.filter(t => t.scheduled_date < today);
+  
+  const groupedTodayTasks = groupTasksBySubject(todayTasks);
+  const groupedOverdueTasks = groupTasksBySubject(overdueTasks);
+  
+  const totalPending = tasks.length;
 
   if (loading) {
     return (
@@ -224,6 +197,99 @@ const Revision = () => {
       </AppLayout>
     );
   }
+
+  const renderTaskCard = (task: RevisionTask, index: number) => (
+    <Card 
+      key={task.id} 
+      className="shadow-card border-0 animate-fade-up"
+      style={{ animationDelay: `${index * 0.05}s` }}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-start gap-4">
+          <div 
+            className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+            style={{ backgroundColor: `${task.topic.chapter.subject.color}20` }}
+          >
+            <RefreshCw 
+              className="w-6 h-6" 
+              style={{ color: task.topic.chapter.subject.color }} 
+            />
+          </div>
+          
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              {getStatusBadge(task.topic.status)}
+              {task.require_quiz && (
+                <Badge variant="outline" className="text-xs border-accent text-accent">
+                  Quiz Required
+                </Badge>
+              )}
+            </div>
+            <p className="font-semibold text-foreground">{task.topic.name}</p>
+            <p className="text-sm text-muted-foreground">{task.topic.chapter.name}</p>
+            <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                ~20 mins
+              </span>
+            </div>
+          </div>
+          
+          <div className="flex flex-col gap-2 shrink-0">
+            <Button 
+              variant="accent" 
+              size="sm"
+              onClick={() => handleStartRevision(task)}
+              disabled={completingTask === task.id}
+            >
+              {completingTask === task.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : task.require_quiz ? (
+                <>
+                  <Play className="w-4 h-4 mr-1" />
+                  Start Quiz
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-1" />
+                  Start Revision
+                </>
+              )}
+            </Button>
+            {!task.require_quiz && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => handleMarkComplete(task)}
+                disabled={completingTask === task.id}
+              >
+                <CheckCircle2 className="w-4 h-4 mr-1" />
+                Mark Complete
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const renderGroupedTasks = (grouped: GroupedTasks) => (
+    Object.entries(grouped).map(([subjectName, { color, tasks: subjectTasks }]) => (
+      <div key={subjectName} className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div 
+            className="w-3 h-3 rounded-full"
+            style={{ backgroundColor: color }}
+          />
+          <h3 className="font-semibold text-foreground">{subjectName}</h3>
+          <Badge variant="outline" className="text-xs">
+            {subjectTasks.length} topic{subjectTasks.length > 1 ? 's' : ''}
+          </Badge>
+        </div>
+        {subjectTasks.map((task, index) => renderTaskCard(task, index))}
+      </div>
+    ))
+  );
 
   return (
     <AppLayout>
@@ -239,170 +305,66 @@ const Revision = () => {
           </div>
         </div>
 
-        {/* Progress Card */}
+        {/* Summary Card */}
         <Card className="shadow-card border-0 bg-gradient-to-br from-primary to-secondary text-primary-foreground">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <p className="text-primary-foreground/80">Today's Revisions</p>
-                <p className="text-2xl font-bold">{completedTasks.length} / {tasks.length} completed</p>
+                <p className="text-primary-foreground/80">Pending Revisions</p>
+                <p className="text-2xl font-bold">{totalPending} topic{totalPending !== 1 ? 's' : ''}</p>
               </div>
               <Calendar className="w-10 h-10 text-primary-foreground/50" />
             </div>
-            <Progress value={progressPercent} className="h-3 bg-card/20" />
+            <div className="flex gap-4 text-sm">
+              <span className="text-primary-foreground/80">
+                Today: {todayTasks.length}
+              </span>
+              {overdueTasks.length > 0 && (
+                <span className="text-primary-foreground/80">
+                  Overdue: {overdueTasks.length}
+                </span>
+              )}
+            </div>
           </CardContent>
         </Card>
 
-        {/* Pending Revisions */}
-        <div className="space-y-3">
-          <h2 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-warning" />
-            Due for Revision ({pendingTasks.length})
-          </h2>
+        {/* No Tasks State */}
+        {totalPending === 0 && (
+          <Card className="shadow-card border-0">
+            <CardContent className="p-8 text-center">
+              <CheckCircle2 className="w-16 h-16 text-success mx-auto mb-4" />
+              <h3 className="text-xl font-display font-semibold text-foreground mb-2">
+                All caught up!
+              </h3>
+              <p className="text-muted-foreground">
+                No revisions due. Keep studying to build your knowledge!
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
-          {pendingTasks.length === 0 ? (
-            <Card className="shadow-card border-0">
-              <CardContent className="p-8 text-center">
-                <CheckCircle2 className="w-16 h-16 text-success mx-auto mb-4" />
-                <h3 className="text-xl font-display font-semibold text-foreground mb-2">
-                  All caught up!
-                </h3>
-                <p className="text-muted-foreground">
-                  No revisions due today. Keep studying!
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            pendingTasks.map((task, index) => (
-              <Card 
-                key={task.id} 
-                className="shadow-card border-0 animate-fade-up"
-                style={{ animationDelay: `${index * 0.05}s` }}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-4">
-                    <div 
-                      className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: `${task.topic.chapter.subject.color}20` }}
-                    >
-                      <RefreshCw 
-                        className="w-6 h-6" 
-                        style={{ color: task.topic.chapter.subject.color }} 
-                      />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <Badge 
-                          variant="outline" 
-                          className="text-xs"
-                          style={{ 
-                            borderColor: task.topic.chapter.subject.color, 
-                            color: task.topic.chapter.subject.color 
-                          }}
-                        >
-                          {task.topic.chapter.subject.name}
-                        </Badge>
-                        {getStatusBadge(task.topic.status)}
-                      </div>
-                      <p className="font-semibold text-foreground">{task.topic.name}</p>
-                      <p className="text-sm text-muted-foreground">{task.topic.chapter.name}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          ~20 mins
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          Due: {new Date(task.scheduled_date).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <Button 
-                      variant="accent" 
-                      size="sm"
-                      onClick={() => handleStartRevision(task)}
-                      disabled={completingTask === task.id}
-                      className="shrink-0"
-                    >
-                      {completingTask === task.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4 mr-1" />
-                          Start Quiz
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </div>
-
-        {/* Completed Today */}
-        {completedTasks.length > 0 && (
-          <div className="space-y-3">
+        {/* Overdue Tasks */}
+        {overdueTasks.length > 0 && (
+          <div className="space-y-4">
             <h2 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-success" />
-              Completed Today ({completedTasks.length})
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Overdue ({overdueTasks.length})
             </h2>
+            {renderGroupedTasks(groupedOverdueTasks)}
+          </div>
+        )}
 
-            {completedTasks.map((task) => (
-              <Card key={task.id} className="shadow-card border-0 opacity-60">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    <div 
-                      className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: `${task.topic.chapter.subject.color}20` }}
-                    >
-                      <CheckCircle2 className="w-6 h-6 text-success" />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-foreground line-through">{task.topic.name}</p>
-                      <p className="text-sm text-muted-foreground">{task.topic.chapter.name}</p>
-                    </div>
-                    
-                    <Badge variant="outline" className="text-success border-success shrink-0">
-                      ✓ Done
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+        {/* Today's Tasks */}
+        {todayTasks.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-warning" />
+              Due Today ({todayTasks.length})
+            </h2>
+            {renderGroupedTasks(groupedTodayTasks)}
           </div>
         )}
       </div>
-
-      {/* Quiz Modal */}
-      {showQuiz && quizTask && (
-        <QuizModal
-          isOpen={showQuiz}
-          onClose={() => {
-            setShowQuiz(false);
-            setCompletingTask(null);
-          }}
-          topic={{
-            id: quizTask.topic.id,
-            name: quizTask.topic.name,
-            content: quizTask.topic.content,
-            chapter: quizTask.topic.chapter,
-          }}
-          onComplete={handleQuizComplete}
-        />
-      )}
-
-      {/* Confidence Modal */}
-      {showConfidence && quizScore !== null && (
-        <ConfidenceModal
-          isOpen={showConfidence}
-          score={quizScore}
-          onSubmit={handleConfidenceSubmit}
-        />
-      )}
     </AppLayout>
   );
 };
