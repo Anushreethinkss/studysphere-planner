@@ -1,7 +1,7 @@
 project_id = "rqgfqcqguukwyzlzofwy"
 
 [functions.generate-quiz]
-verify_jwt = true
+verify_jwt = false
 
 [functions.parse-pdf]
 verify_jwt = false
