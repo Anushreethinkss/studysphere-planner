@@ -1,8 +1,10 @@
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { useState, useRef } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Sparkles, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Sparkles, AlertCircle, Upload, FileText, Loader2, X } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface SyllabusUploaderProps {
   value: string;
@@ -11,6 +13,10 @@ interface SyllabusUploaderProps {
 
 const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
   const [error, setError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onChange(e.target.value);
@@ -19,8 +25,142 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
     }
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (file.type !== 'application/pdf') {
+      setError('Please upload a PDF file');
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File size must be less than 10MB');
+      return;
+    }
+
+    setIsUploading(true);
+    setError(null);
+    setUploadedFileName(file.name);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const { data, error: fnError } = await supabase.functions.invoke('parse-pdf', {
+        body: formData,
+      });
+
+      if (fnError) throw fnError;
+
+      if (data?.error && !data?.extractedText) {
+        setError(data.error);
+        toast({
+          variant: 'destructive',
+          title: 'PDF could not be read',
+          description: 'Try uploading a text-based PDF or paste text manually.',
+        });
+        return;
+      }
+
+      if (data?.extractedText) {
+        onChange(data.extractedText);
+        toast({
+          title: 'Syllabus uploaded successfully',
+          description: 'Review and edit the extracted text below.',
+        });
+      } else {
+        setError('❌ PDF could not be read. Try uploading a text-based PDF');
+      }
+    } catch (err) {
+      console.error('PDF upload error:', err);
+      setError('❌ PDF could not be read. Try uploading a text-based PDF');
+      toast({
+        variant: 'destructive',
+        title: 'Upload failed',
+        description: 'Please try a different file or paste text manually.',
+      });
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const clearUpload = () => {
+    setUploadedFileName(null);
+    onChange('');
+    setError(null);
+  };
+
   return (
     <div className="space-y-4">
+      {/* PDF Upload Section */}
+      <div className="space-y-3">
+        <Label className="text-sm font-medium text-foreground">Upload PDF Syllabus</Label>
+        
+        <div className="flex items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf"
+            onChange={handleFileSelect}
+            className="hidden"
+            id="pdf-upload"
+          />
+          
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className="h-12 px-6 gap-2"
+          >
+            {isUploading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Extracting text...
+              </>
+            ) : (
+              <>
+                <Upload className="w-4 h-4" />
+                Upload PDF
+              </>
+            )}
+          </Button>
+
+          {uploadedFileName && !isUploading && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/30">
+              <FileText className="w-4 h-4 text-primary" />
+              <span className="text-sm text-primary font-medium truncate max-w-[150px]">
+                {uploadedFileName}
+              </span>
+              <button
+                onClick={clearUpload}
+                className="p-0.5 rounded hover:bg-primary/20 transition-colors"
+              >
+                <X className="w-3 h-3 text-primary" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          PDF file, max 10MB. Text-based PDFs work best.
+        </p>
+      </div>
+
+      {/* Divider */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-border" />
+        <span className="text-xs text-muted-foreground uppercase">or paste text</span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+
       {/* Error Display */}
       {error && (
         <div className="flex items-start gap-2 p-3 rounded-xl bg-destructive/10 border border-destructive/30">
@@ -32,7 +172,7 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
       {/* Textarea */}
       <div>
         <Label htmlFor="syllabus-text" className="text-sm font-medium text-foreground mb-2 block">
-          Paste your syllabus here
+          {uploadedFileName ? 'Edit extracted text' : 'Paste your syllabus here'}
         </Label>
         <Textarea
           id="syllabus-text"
