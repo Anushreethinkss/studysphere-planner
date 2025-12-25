@@ -268,11 +268,12 @@ const Plan = () => {
       setCompletedToday(prev => new Set([...prev, quizTopic.id]));
       
       toast({
-        title: getStatusMessage(status),
-        description: `Revision scheduled. Keep going!`,
+        title: "Great job! Topic completed.",
+        description: getStatusMessage(status),
       });
 
-      fetchData();
+      // Refresh data and auto-pull next topic to maintain daily count
+      await fetchData();
     } catch (error) {
       console.error('Error updating progress:', error);
       toast({
@@ -478,22 +479,27 @@ const Plan = () => {
                         </div>
                       </div>
                       
-                      {!isCompleted && (
+                      {!isCompleted ? (
                         <Button 
                           variant="accent" 
                           size="sm"
                           onClick={() => handleCompleteTopic(topic)}
                           disabled={completingTopic === topic.id}
+                          className="shrink-0"
                         >
                           {completingTopic === topic.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             <>
-                              Complete
-                              <ChevronRight className="w-4 h-4 ml-1" />
+                              <CheckCircle2 className="w-4 h-4 mr-1" />
+                              Mark Complete
                             </>
                           )}
                         </Button>
+                      ) : (
+                        <Badge variant="outline" className="text-success border-success shrink-0">
+                          ✓ Done
+                        </Badge>
                       )}
                     </div>
                   </CardContent>
