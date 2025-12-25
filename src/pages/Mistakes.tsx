@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import BottomNav from '@/components/BottomNav';
+import AppLayout from '@/components/AppLayout';
 import { useToast } from '@/hooks/use-toast';
 import { 
   BookMarked, CheckCircle, Trash2, RefreshCcw, 
@@ -132,15 +132,16 @@ const Mistakes = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-24">
-      {/* Header */}
-      <header className="bg-gradient-primary text-primary-foreground p-6 rounded-b-3xl">
-        <h1 className="text-2xl font-display font-bold flex items-center gap-2">
-          <BookMarked className="w-6 h-6" />
-          Mistake Notebook
-        </h1>
-        <p className="text-primary-foreground/70 mt-1">Learn from your errors</p>
-      </header>
+    <AppLayout>
+      <div className="p-4 md:p-6 space-y-4">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-display font-bold text-foreground flex items-center gap-2">
+            <BookMarked className="w-6 h-6 text-accent" />
+            Mistake Notebook
+          </h1>
+          <p className="text-muted-foreground mt-1">Learn from your errors</p>
+        </div>
 
       <div className="px-4 -mt-6 space-y-4">
         {/* Stats Card */}
@@ -302,9 +303,7 @@ const Mistakes = () => {
           </Accordion>
         )}
       </div>
-
-      <BottomNav />
-    </div>
+    </AppLayout>
   );
 };
 

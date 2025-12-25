@@ -13,7 +13,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { 
   School, Trophy, Plus, X, Clock, FileText, 
-  ChevronRight, ChevronLeft, Sparkles, Loader2, BookOpen
+  ChevronRight, ChevronLeft, Sparkles, Loader2, BookOpen, CalendarDays
 } from 'lucide-react';
 
 type PrepType = 'school' | 'competitive';
@@ -41,6 +41,7 @@ const Onboarding = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [newSubject, setNewSubject] = useState('');
   const [dailyHours, setDailyHours] = useState(2);
+  const [examDate, setExamDate] = useState('');
   const [syllabusText, setSyllabusText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
@@ -48,7 +49,7 @@ const Onboarding = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const totalSteps = 4;
+  const totalSteps = 5;
   const progress = (step / totalSteps) * 100;
 
   const addSubject = () => {
@@ -72,29 +73,54 @@ const Onboarding = () => {
 
     lines.forEach(line => {
       const trimmed = line.trim();
-      // Check if it's a chapter (starts with number, "Chapter", "Unit", or is all caps)
+      
+      // Check if it's a chapter line (starts with "Chapter", number, or is a header)
       if (/^(chapter|unit|\d+\.|\d+\))/i.test(trimmed) || 
-          (trimmed === trimmed.toUpperCase() && trimmed.length > 3)) {
-        if (currentChapter) {
+          (trimmed === trimmed.toUpperCase() && trimmed.length > 3 && !trimmed.startsWith('-'))) {
+        if (currentChapter && currentChapter.topics.length > 0) {
           chapters.push(currentChapter);
         }
-        currentChapter = { name: trimmed.replace(/^(chapter|unit)\s*\d*[:.)\s]*/i, ''), topics: [] };
-      } else if (currentChapter && trimmed) {
-        // It's a topic
-        currentChapter.topics.push(trimmed.replace(/^[-•*\d.)\s]+/, ''));
+        const chapterName = trimmed
+          .replace(/^(chapter|unit)\s*\d*[:.)\s]*/i, '')
+          .replace(/^\d+[.:)\s]+/, '')
+          .trim();
+        currentChapter = { name: chapterName || `Chapter ${chapters.length + 1}`, topics: [] };
+      } else if (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*')) {
+        // It's a topic (bullet point)
+        const topicName = trimmed.replace(/^[-•*\s]+/, '').trim();
+        if (topicName) {
+          if (currentChapter) {
+            currentChapter.topics.push(topicName);
+          } else {
+            // Create a default chapter if none exists
+            currentChapter = { name: `${subjectName} - Part 1`, topics: [topicName] };
+          }
+        }
+      } else if (currentChapter && trimmed && !trimmed.match(/^(chapter|unit)/i)) {
+        // Other lines treated as topics
+        currentChapter.topics.push(trimmed.replace(/^[-•*\d.)\s]+/, '').trim());
       }
     });
 
-    if (currentChapter) {
+    if (currentChapter && currentChapter.topics.length > 0) {
       chapters.push(currentChapter);
     }
 
-    // If no chapters detected, create a default one
+    // If no chapters detected, create default structure
     if (chapters.length === 0 && lines.length > 0) {
-      chapters.push({
-        name: `${subjectName} Fundamentals`,
-        topics: lines.slice(0, 10).map(l => l.replace(/^[-•*\d.)\s]+/, ''))
-      });
+      const allTopics = lines
+        .filter(l => l.trim())
+        .map(l => l.replace(/^[-•*\d.)\s]+/, '').trim())
+        .filter(l => l.length > 0);
+      
+      // Split topics into chunks of 5 for multiple chapters
+      const chunkSize = 5;
+      for (let i = 0; i < allTopics.length; i += chunkSize) {
+        chapters.push({
+          name: `${subjectName} - Part ${Math.floor(i / chunkSize) + 1}`,
+          topics: allTopics.slice(i, i + chunkSize)
+        });
+      }
     }
 
     return { chapters };
@@ -106,13 +132,14 @@ const Onboarding = () => {
     setIsLoading(true);
     
     try {
-      // Update profile
+      // Update profile with exam date
       await supabase
         .from('profiles')
         .update({
           prep_type: prepType,
           board: board || null,
           daily_study_hours: dailyHours,
+          exam_date: examDate || null,
           onboarding_completed: true,
         })
         .eq('user_id', user.id);
@@ -161,31 +188,9 @@ const Onboarding = () => {
           }));
 
           if (topicsToInsert.length > 0) {
-            const { data: topicsData, error: topicsError } = await supabase
+            await supabase
               .from('topics')
-              .insert(topicsToInsert)
-              .select();
-
-            if (topicsError) throw topicsError;
-
-            // Create study tasks for each topic
-            const today = new Date();
-            const minutesPerTopic = Math.floor((dailyHours * 60) / (topicsToInsert.length || 1));
-            
-            const tasksToInsert = topicsData.map((topic, index) => {
-              const scheduledDate = new Date(today);
-              scheduledDate.setDate(today.getDate() + Math.floor(index / 3)); // 3 topics per day
-              
-              return {
-                user_id: user.id,
-                topic_id: topic.id,
-                scheduled_date: scheduledDate.toISOString().split('T')[0],
-                duration_minutes: Math.min(minutesPerTopic, 45),
-                task_type: 'study' as const,
-              };
-            });
-
-            await supabase.from('study_tasks').insert(tasksToInsert);
+              .insert(topicsToInsert);
           }
         }
       }
@@ -195,7 +200,7 @@ const Onboarding = () => {
         description: 'Your personalized study schedule is ready.',
       });
       
-      navigate('/dashboard');
+      navigate('/plan');
     } catch (error) {
       console.error('Error creating study plan:', error);
       toast({
@@ -208,12 +213,18 @@ const Onboarding = () => {
     }
   };
 
+  const getMinDate = () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  };
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-xl bg-gradient-primary flex items-center justify-center">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
             <BookOpen className="w-6 h-6 text-primary-foreground" />
           </div>
           <div>
@@ -284,8 +295,43 @@ const Onboarding = () => {
           </Card>
         )}
 
-        {/* Step 2: Subjects */}
+        {/* Step 2: Exam Date */}
         {step === 2 && (
+          <Card className="shadow-card border-0 animate-fade-up">
+            <CardHeader>
+              <CardTitle className="font-display flex items-center gap-2">
+                <CalendarDays className="w-6 h-6 text-accent" />
+                When is your exam?
+              </CardTitle>
+              <CardDescription>We'll create a study plan to help you prepare in time</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="exam-date">Exam Date</Label>
+                <Input
+                  id="exam-date"
+                  type="date"
+                  value={examDate}
+                  onChange={(e) => setExamDate(e.target.value)}
+                  min={getMinDate()}
+                  className="h-12 mt-2"
+                />
+              </div>
+              
+              {examDate && (
+                <div className="p-4 rounded-xl bg-accent/10 border border-accent/30 animate-fade-up">
+                  <p className="text-sm text-muted-foreground">Days until exam:</p>
+                  <p className="text-3xl font-bold text-accent">
+                    {Math.ceil((new Date(examDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} days
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step 3: Subjects */}
+        {step === 3 && (
           <Card className="shadow-card border-0 animate-fade-up">
             <CardHeader>
               <CardTitle className="font-display">Add your subjects</CardTitle>
@@ -327,8 +373,8 @@ const Onboarding = () => {
           </Card>
         )}
 
-        {/* Step 3: Daily Hours */}
-        {step === 3 && (
+        {/* Step 4: Daily Hours */}
+        {step === 4 && (
           <Card className="shadow-card border-0 animate-fade-up">
             <CardHeader>
               <CardTitle className="font-display flex items-center gap-2">
@@ -360,8 +406,8 @@ const Onboarding = () => {
           </Card>
         )}
 
-        {/* Step 4: Syllabus */}
-        {step === 4 && (
+        {/* Step 5: Syllabus */}
+        {step === 5 && (
           <Card className="shadow-card border-0 animate-fade-up">
             <CardHeader>
               <CardTitle className="font-display flex items-center gap-2">
@@ -369,7 +415,7 @@ const Onboarding = () => {
                 Add your syllabus
               </CardTitle>
               <CardDescription>
-                Paste your syllabus content below. List chapters and topics.
+                Paste your syllabus content below. Use "Chapter" for chapter headings and "-" for topics.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -384,7 +430,12 @@ Chapter 1: Introduction to Physics
 Chapter 2: Force and Laws of Motion
 - Newton's First Law
 - Newton's Second Law
-- Newton's Third Law`}
+- Newton's Third Law
+
+Chapter 3: Work and Energy
+- Work done by a force
+- Kinetic Energy
+- Potential Energy`}
                 value={syllabusText}
                 onChange={(e) => setSyllabusText(e.target.value)}
                 className="min-h-[300px] font-mono text-sm"
@@ -415,7 +466,8 @@ Chapter 2: Force and Laws of Motion
               onClick={() => setStep(step + 1)}
               disabled={
                 (step === 1 && !prepType) ||
-                (step === 2 && subjects.length === 0)
+                (step === 2 && !examDate) ||
+                (step === 3 && subjects.length === 0)
               }
             >
               Continue

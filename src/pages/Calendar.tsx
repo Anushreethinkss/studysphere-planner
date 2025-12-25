@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import BottomNav from '@/components/BottomNav';
+import AppLayout from '@/components/AppLayout';
 import { 
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, 
   Clock, BookMarked, Brain, CheckCircle, Loader2
