@@ -10,6 +10,7 @@ import Onboarding from "./pages/Onboarding";
 import SyllabusPreview from "./pages/SyllabusPreview";
 import Dashboard from "./pages/Dashboard";
 import Plan from "./pages/Plan";
+import Quiz from "./pages/Quiz";
 import Syllabus from "./pages/Syllabus";
 import Progress from "./pages/Progress";
 import Mistakes from "./pages/Mistakes";
@@ -70,6 +71,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <Plan />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/quiz/:topicId" 
+        element={
+          <ProtectedRoute>
+            <Quiz />
           </ProtectedRoute>
         } 
       />
