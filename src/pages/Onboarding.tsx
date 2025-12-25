@@ -43,61 +43,151 @@ const Onboarding = () => {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Parse syllabus text into chapters and topics
-  const parseSyllabus = (text: string) => {
+  // Parse syllabus text into 3-layer structure: subjects -> chapters -> topics
+  interface ParsedChapter {
+    name: string;
+    topics: string[];
+  }
+  
+  interface ParsedSubject {
+    name: string;
+    color: string;
+    chapters: ParsedChapter[];
+  }
+
+  const parseSyllabus = (text: string): ParsedSubject[] => {
     const lines = text.split('\n').filter(line => line.trim());
-    const chapters: { name: string; topics: string[] }[] = [];
-    let currentChapter: { name: string; topics: string[] } | null = null;
+    const parsedSubjects: ParsedSubject[] = [];
+    
+    let currentSubject: ParsedSubject | null = null;
+    let currentChapter: ParsedChapter | null = null;
+    let colorIndex = 0;
 
     lines.forEach(line => {
       const trimmed = line.trim();
       
-      // Check if it's a chapter line
-      if (/^(chapter|unit|\d+\.|\d+\))/i.test(trimmed) || 
-          (trimmed === trimmed.toUpperCase() && trimmed.length > 3 && !trimmed.startsWith('-'))) {
-        if (currentChapter && currentChapter.topics.length > 0) {
-          chapters.push(currentChapter);
+      // Check if it's a subject line (ends with ":")
+      // e.g., "Hindi:", "English:", "Science:", "Math:"
+      if (/^[A-Za-z\u0900-\u097F\s]+:$/.test(trimmed)) {
+        // Save previous chapter to previous subject
+        if (currentChapter && currentChapter.topics.length > 0 && currentSubject) {
+          currentSubject.chapters.push(currentChapter);
         }
+        // Save previous subject
+        if (currentSubject && currentSubject.chapters.length > 0) {
+          parsedSubjects.push(currentSubject);
+        }
+        
+        const subjectName = trimmed.replace(/:$/, '').trim();
+        currentSubject = {
+          name: subjectName,
+          color: SUBJECT_COLORS[colorIndex % SUBJECT_COLORS.length],
+          chapters: []
+        };
+        colorIndex++;
+        currentChapter = null;
+      }
+      // Check if it's a chapter line
+      else if (/^(chapter|unit|\d+\.|\d+\))/i.test(trimmed) || 
+          (trimmed === trimmed.toUpperCase() && trimmed.length > 3 && !trimmed.startsWith('-') && !trimmed.endsWith(':'))) {
+        // Save previous chapter
+        if (currentChapter && currentChapter.topics.length > 0 && currentSubject) {
+          currentSubject.chapters.push(currentChapter);
+        }
+        
         const chapterName = trimmed
-          .replace(/^(chapter|unit)\s*\d*[:.)\s]*/i, '')
-          .replace(/^\d+[.:)\s]+/, '')
+          .replace(/^(chapter|unit)\s*\d*[:.–\-)\s]*/i, '')
+          .replace(/^\d+[.:–\-)\s]+/, '')
           .trim();
-        currentChapter = { name: chapterName || `Chapter ${chapters.length + 1}`, topics: [] };
-      } else if (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*')) {
+        
+        currentChapter = { 
+          name: chapterName || `Chapter ${(currentSubject?.chapters.length || 0) + 1}`, 
+          topics: [] 
+        };
+        
+        // If no subject defined yet, create a default one
+        if (!currentSubject) {
+          currentSubject = {
+            name: subjects.length > 0 ? subjects[0].name : 'General',
+            color: subjects.length > 0 ? subjects[0].color : SUBJECT_COLORS[0],
+            chapters: []
+          };
+        }
+      }
+      // Check if it's a topic line (starts with -, •, *)
+      else if (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*')) {
         const topicName = trimmed.replace(/^[-•*\s]+/, '').trim();
         if (topicName) {
-          if (currentChapter) {
-            currentChapter.topics.push(topicName);
-          } else {
-            currentChapter = { name: 'Chapter 1', topics: [topicName] };
+          if (!currentChapter) {
+            currentChapter = { name: 'Chapter 1', topics: [] };
           }
+          if (!currentSubject) {
+            currentSubject = {
+              name: subjects.length > 0 ? subjects[0].name : 'General',
+              color: subjects.length > 0 ? subjects[0].color : SUBJECT_COLORS[0],
+              chapters: []
+            };
+          }
+          currentChapter.topics.push(topicName);
         }
-      } else if (currentChapter && trimmed && !trimmed.match(/^(chapter|unit)/i)) {
+      }
+      // Other non-empty lines could be topics too
+      else if (currentChapter && trimmed && !trimmed.match(/^(chapter|unit)/i) && !trimmed.endsWith(':')) {
         currentChapter.topics.push(trimmed.replace(/^[-•*\d.)\s]+/, '').trim());
       }
     });
 
-    if (currentChapter && currentChapter.topics.length > 0) {
-      chapters.push(currentChapter);
+    // Don't forget the last chapter and subject
+    if (currentChapter && currentChapter.topics.length > 0 && currentSubject) {
+      currentSubject.chapters.push(currentChapter);
+    }
+    if (currentSubject && currentSubject.chapters.length > 0) {
+      parsedSubjects.push(currentSubject);
     }
 
-    // If no chapters detected, create default structure
-    if (chapters.length === 0 && lines.length > 0) {
-      const allTopics = lines
-        .filter(l => l.trim())
-        .map(l => l.replace(/^[-•*\d.)\s]+/, '').trim())
-        .filter(l => l.length > 0);
+    // If no subjects detected but we have manually added subjects, use those
+    if (parsedSubjects.length === 0 && subjects.length > 0) {
+      // Fall back to old behavior: parse chapters/topics and apply to first subject
+      const chapters: ParsedChapter[] = [];
+      let fallbackChapter: ParsedChapter | null = null;
       
-      const chunkSize = 5;
-      for (let i = 0; i < allTopics.length; i += chunkSize) {
-        chapters.push({
-          name: `Part ${Math.floor(i / chunkSize) + 1}`,
-          topics: allTopics.slice(i, i + chunkSize)
+      lines.forEach(line => {
+        const trimmed = line.trim();
+        if (/^(chapter|unit|\d+\.|\d+\))/i.test(trimmed)) {
+          if (fallbackChapter && fallbackChapter.topics.length > 0) {
+            chapters.push(fallbackChapter);
+          }
+          const chapterName = trimmed
+            .replace(/^(chapter|unit)\s*\d*[:.–\-)\s]*/i, '')
+            .replace(/^\d+[.:–\-)\s]+/, '')
+            .trim();
+          fallbackChapter = { name: chapterName || `Chapter ${chapters.length + 1}`, topics: [] };
+        } else if (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*')) {
+          const topicName = trimmed.replace(/^[-•*\s]+/, '').trim();
+          if (topicName) {
+            if (!fallbackChapter) fallbackChapter = { name: 'Chapter 1', topics: [] };
+            fallbackChapter.topics.push(topicName);
+          }
+        }
+      });
+      
+      if (fallbackChapter && fallbackChapter.topics.length > 0) {
+        chapters.push(fallbackChapter);
+      }
+
+      // Distribute chapters across subjects
+      if (chapters.length > 0) {
+        subjects.forEach((subject, idx) => {
+          parsedSubjects.push({
+            name: subject.name,
+            color: subject.color,
+            chapters: idx === 0 ? chapters : [] // Only first subject gets the chapters
+          });
         });
       }
     }
 
-    return chapters;
+    return parsedSubjects;
   };
 
   const handleSaveAndContinue = async () => {
@@ -119,10 +209,10 @@ const Onboarding = () => {
     setIsLoading(true);
 
     try {
-      const parsedChapters = parseSyllabus(syllabusText);
+      const parsedSubjects = parseSyllabus(syllabusText);
       
-      if (parsedChapters.length === 0) {
-        setSyllabusError('Could not parse syllabus. Please use "Chapter" for headings and "-" for topics.');
+      if (parsedSubjects.length === 0 || parsedSubjects.every(s => s.chapters.length === 0)) {
+        setSyllabusError('Could not parse syllabus. Use "Subject:" for subjects, "Chapter" for chapters, and "-" for topics.');
         setIsLoading(false);
         return;
       }
@@ -139,22 +229,24 @@ const Onboarding = () => {
         })
         .eq('user_id', user.id);
 
-      // Create subjects, chapters, topics
-      for (const subject of subjects) {
+      // Create subjects, chapters, topics from parsed structure
+      for (const parsedSubject of parsedSubjects) {
+        if (parsedSubject.chapters.length === 0) continue;
+        
         const { data: subjectData, error: subjectError } = await supabase
           .from('subjects')
           .insert({
             user_id: user.id,
-            name: subject.name,
-            color: subject.color,
+            name: parsedSubject.name,
+            color: parsedSubject.color,
           })
           .select()
           .single();
 
         if (subjectError) throw subjectError;
 
-        for (let chapterIndex = 0; chapterIndex < parsedChapters.length; chapterIndex++) {
-          const chapter = parsedChapters[chapterIndex];
+        for (let chapterIndex = 0; chapterIndex < parsedSubject.chapters.length; chapterIndex++) {
+          const chapter = parsedSubject.chapters[chapterIndex];
           
           const { data: chapterData, error: chapterError } = await supabase
             .from('chapters')
@@ -185,7 +277,7 @@ const Onboarding = () => {
 
       toast({
         title: 'Syllabus saved!',
-        description: 'Your study plan is ready.',
+        description: `Created ${parsedSubjects.length} subject(s) with your study plan.`,
       });
       
       navigate('/plan');
