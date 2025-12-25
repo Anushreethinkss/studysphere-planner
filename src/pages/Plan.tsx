@@ -1,18 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { 
-  BookOpen, Clock, CheckCircle2, ChevronRight, 
+  BookOpen, Clock, CheckCircle2, 
   Loader2, Target, Flame, Calendar, Brain, Sparkles
 } from 'lucide-react';
-import QuizModal from '@/components/QuizModal';
-import ConfidenceModal from '@/components/ConfidenceModal';
 import AppLayout from '@/components/AppLayout';
 
 interface Topic {
@@ -46,20 +44,13 @@ const Plan = () => {
   const [todayTopics, setTodayTopics] = useState<Topic[]>([]);
   const [completedToday, setCompletedToday] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [completingTopic, setCompletingTopic] = useState<string | null>(null);
-  
-  // Quiz state
-  const [showQuiz, setShowQuiz] = useState(false);
-  const [quizTopic, setQuizTopic] = useState<Topic | null>(null);
-  const [quizScore, setQuizScore] = useState<number | null>(null);
-  const [showConfidence, setShowConfidence] = useState(false);
   
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const calculateDailyTopics = useCallback((topics: Topic[], examDate: string | null, dailyHours: number) => {
     if (!examDate) {
-      // Default to 3 topics per day if no exam date
       return Math.max(3, Math.floor(dailyHours * 1.5));
     }
 
@@ -84,7 +75,6 @@ const Plan = () => {
     if (!user) return;
     
     try {
-      // Fetch profile
       const { data: profileData } = await supabase
         .from('profiles')
         .select('name, exam_date, daily_study_hours, current_streak')
@@ -93,7 +83,6 @@ const Plan = () => {
 
       setProfile(profileData);
 
-      // Fetch all topics with chapter and subject info
       const { data: topicsData } = await supabase
         .from('topics')
         .select(`
@@ -116,7 +105,6 @@ const Plan = () => {
         .eq('user_id', user.id)
         .order('order_index', { ascending: true });
 
-      // Sort topics by chapter order and topic order
       const sortedTopics = (topicsData as unknown as Topic[])?.sort((a, b) => {
         if (a.chapter.order_index !== b.chapter.order_index) {
           return a.chapter.order_index - b.chapter.order_index;
@@ -126,19 +114,16 @@ const Plan = () => {
 
       setAllTopics(sortedTopics);
 
-      // Calculate topics per day
       const topicsPerDay = calculateDailyTopics(
         sortedTopics,
         profileData?.exam_date || null,
         profileData?.daily_study_hours || 2
       );
 
-      // Get pending topics for today
       const pendingTopics = sortedTopics.filter(t => t.status === 'pending' || !t.status);
       const dailyTopics = pendingTopics.slice(0, topicsPerDay);
       setTodayTopics(dailyTopics);
 
-      // Check for already completed topics today
       const today = new Date().toISOString().split('T')[0];
       const { data: completedTasks } = await supabase
         .from('study_tasks')
@@ -157,144 +142,20 @@ const Plan = () => {
     }
   };
 
-  const handleCompleteTopic = async (topic: Topic) => {
-    setCompletingTopic(topic.id);
-    setQuizTopic(topic);
-    setShowQuiz(true);
+  const handleCompleteTopic = (topicId: string) => {
+    navigate(`/quiz/${topicId}`);
   };
 
-  const handleQuizComplete = async (score: number, quizId: string) => {
-    setShowQuiz(false);
-    setQuizScore(score);
-    setShowConfidence(true);
-  };
-
-  const handleConfidenceSubmit = async (confidence: 'high' | 'medium' | 'low') => {
-    if (!quizTopic || !user || quizScore === null) return;
-
-    try {
-      // Determine status based on score and confidence
-      let status: string;
-      if (quizScore >= 80 && confidence === 'high') {
-        status = 'strong';
-      } else if (quizScore >= 50 || confidence === 'medium') {
-        status = 'needs_revision';
-      } else {
-        status = 'weak';
-      }
-
-      // Update topic
-      await supabase
-        .from('topics')
-        .update({
-          status,
-          confidence,
-          last_quiz_score: quizScore,
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', quizTopic.id);
-
-      // Create study task record
-      const today = new Date().toISOString().split('T')[0];
-      await supabase
-        .from('study_tasks')
-        .insert({
-          user_id: user.id,
-          topic_id: quizTopic.id,
-          scheduled_date: today,
-          duration_minutes: 30,
-          task_type: 'study',
-          is_completed: true,
-          completed_at: new Date().toISOString(),
-        });
-
-      // Schedule revision based on status
-      const todayDate = new Date();
-      let revisionDates: Date[] = [];
-
-      if (status === 'strong') {
-        revisionDates = [
-          new Date(todayDate.getTime() + 7 * 24 * 60 * 60 * 1000),
-          new Date(todayDate.getTime() + 21 * 24 * 60 * 60 * 1000),
-        ];
-      } else if (status === 'needs_revision') {
-        revisionDates = [
-          new Date(todayDate.getTime() + 3 * 24 * 60 * 60 * 1000),
-          new Date(todayDate.getTime() + 7 * 24 * 60 * 60 * 1000),
-        ];
-      } else {
-        revisionDates = [
-          new Date(todayDate.getTime() + 1 * 24 * 60 * 60 * 1000),
-        ];
-      }
-
-      // Create revision tasks
-      const revisionTasks = revisionDates.map(date => ({
-        user_id: user.id,
-        topic_id: quizTopic.id,
-        scheduled_date: date.toISOString().split('T')[0],
-        duration_minutes: 20,
-        task_type: 'revision' as const,
-      }));
-
-      await supabase.from('study_tasks').insert(revisionTasks);
-
-      // Update streak
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('last_study_date, current_streak')
-        .eq('user_id', user.id)
-        .single();
-
-      const todayStr = todayDate.toISOString().split('T')[0];
-      const yesterday = new Date(todayDate.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      
-      let newStreak = 1;
-      if (profileData?.last_study_date === yesterday) {
-        newStreak = (profileData.current_streak || 0) + 1;
-      } else if (profileData?.last_study_date === todayStr) {
-        newStreak = profileData.current_streak || 1;
-      }
-
-      await supabase
-        .from('profiles')
-        .update({
-          last_study_date: todayStr,
-          current_streak: newStreak,
-        })
-        .eq('user_id', user.id);
-
-      // Update local state
-      setCompletedToday(prev => new Set([...prev, quizTopic.id]));
-      
-      toast({
-        title: "Great job! Topic completed.",
-        description: getStatusMessage(status),
-      });
-
-      // Refresh data and auto-pull next topic to maintain daily count
-      await fetchData();
-    } catch (error) {
-      console.error('Error updating progress:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to update progress.',
-      });
-    } finally {
-      setShowConfidence(false);
-      setQuizTopic(null);
-      setQuizScore(null);
-      setCompletingTopic(null);
-    }
-  };
-
-  const getStatusMessage = (status: string) => {
+  const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'strong': return 'Excellent! Topic mastered!';
-      case 'needs_revision': return 'Good job! Revision scheduled.';
-      case 'weak': return 'Keep practicing! Extra revision added.';
-      default: return 'Progress saved!';
+      case 'strong':
+        return <Badge className="bg-success text-white shrink-0">Strong</Badge>;
+      case 'needs_revision':
+        return <Badge className="bg-warning text-white shrink-0">Needs Revision</Badge>;
+      case 'weak':
+        return <Badge className="bg-destructive text-white shrink-0">Weak</Badge>;
+      default:
+        return null;
     }
   };
 
@@ -322,7 +183,7 @@ const Plan = () => {
     );
   }
 
-  const completedCount = todayTopics.filter(t => completedToday.has(t.id) || t.status !== 'pending').length;
+  const completedCount = todayTopics.filter(t => completedToday.has(t.id) || (t.status && t.status !== 'pending')).length;
   const progressPercent = todayTopics.length > 0 ? (completedCount / todayTopics.length) * 100 : 0;
   
   const totalTopics = allTopics.length;
@@ -432,14 +293,6 @@ const Plan = () => {
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-4">
-                      <div className="flex items-center pt-1">
-                        <Checkbox 
-                          checked={isCompleted}
-                          disabled={isCompleted}
-                          className="w-6 h-6"
-                        />
-                      </div>
-                      
                       <div 
                         className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
                         style={{ backgroundColor: `${topic.chapter.subject.color}20` }}
@@ -455,7 +308,7 @@ const Plan = () => {
                       </div>
                       
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <Badge 
                             variant="outline" 
                             className="text-xs"
@@ -466,6 +319,7 @@ const Plan = () => {
                           >
                             {topic.chapter.subject.name}
                           </Badge>
+                          {isCompleted && getStatusBadge(topic.status)}
                         </div>
                         <p className={`font-semibold text-foreground ${isCompleted ? 'line-through' : ''}`}>
                           {topic.name}
@@ -483,18 +337,11 @@ const Plan = () => {
                         <Button 
                           variant="accent" 
                           size="sm"
-                          onClick={() => handleCompleteTopic(topic)}
-                          disabled={completingTopic === topic.id}
+                          onClick={() => handleCompleteTopic(topic.id)}
                           className="shrink-0"
                         >
-                          {completingTopic === topic.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <>
-                              <CheckCircle2 className="w-4 h-4 mr-1" />
-                              Mark Complete
-                            </>
-                          )}
+                          <CheckCircle2 className="w-4 h-4 mr-1" />
+                          Mark Complete
                         </Button>
                       ) : (
                         <Badge variant="outline" className="text-success border-success shrink-0">
@@ -519,33 +366,6 @@ const Plan = () => {
           )}
         </div>
       </div>
-
-      {/* Quiz Modal */}
-      {showQuiz && quizTopic && (
-        <QuizModal
-          isOpen={showQuiz}
-          onClose={() => {
-            setShowQuiz(false);
-            setCompletingTopic(null);
-          }}
-          topic={{
-            id: quizTopic.id,
-            name: quizTopic.name,
-            content: quizTopic.content,
-            chapter: quizTopic.chapter,
-          }}
-          onComplete={handleQuizComplete}
-        />
-      )}
-
-      {/* Confidence Modal */}
-      {showConfidence && quizScore !== null && (
-        <ConfidenceModal
-          isOpen={showConfidence}
-          score={quizScore}
-          onSubmit={handleConfidenceSubmit}
-        />
-      )}
     </AppLayout>
   );
 };
