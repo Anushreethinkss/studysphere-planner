@@ -2,10 +2,9 @@ import { useState, useRef } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Sparkles, AlertCircle, Upload, FileText, Loader2, X, Eye } from 'lucide-react';
+import { Sparkles, AlertCircle, Upload, FileText, Loader2, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { createWorker } from 'tesseract.js';
 
 interface SyllabusUploaderProps {
   value: string;
@@ -15,10 +14,7 @@ interface SyllabusUploaderProps {
 const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
   const [error, setError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
-  const [usedOcr, setUsedOcr] = useState(false);
-  const [ocrProgress, setOcrProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -26,78 +22,6 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
     onChange(e.target.value);
     if (error && e.target.value.trim()) {
       setError(null);
-    }
-  };
-
-  // Convert PDF pages to images for OCR
-  const pdfToImages = async (pdfData: ArrayBuffer): Promise<string[]> => {
-    const pdfjsLib = await import('pdfjs-dist');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs`;
-    
-    const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
-    const images: string[] = [];
-    
-    const maxPages = Math.min(pdf.numPages, 10); // Limit to 10 pages for OCR
-    
-    for (let i = 1; i <= maxPages; i++) {
-      const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 2.0 }); // Higher scale for better OCR
-      
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      
-      await page.render({
-        canvasContext: context!,
-        viewport: viewport,
-      }).promise;
-      
-      images.push(canvas.toDataURL('image/png'));
-    }
-    
-    return images;
-  };
-
-  // Run OCR on PDF images
-  const runOcr = async (pdfData: ArrayBuffer): Promise<string> => {
-    setIsOcrProcessing(true);
-    setOcrProgress(0);
-    
-    try {
-      toast({
-        title: 'Running OCR...',
-        description: 'Extracting Hindi text from PDF images. This may take a moment.',
-      });
-
-      // Convert PDF to images
-      const images = await pdfToImages(pdfData);
-      
-      // Create Tesseract worker with Hindi + English
-      const worker = await createWorker('hin+eng', 1, {
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            setOcrProgress(Math.round(m.progress * 100));
-          }
-        },
-      });
-      
-      const textParts: string[] = [];
-      
-      for (let i = 0; i < images.length; i++) {
-        setOcrProgress(Math.round(((i + 0.5) / images.length) * 100));
-        const { data: { text } } = await worker.recognize(images[i]);
-        if (text.trim()) {
-          textParts.push(text.trim());
-        }
-      }
-      
-      await worker.terminate();
-      
-      return textParts.join('\n\n');
-    } finally {
-      setIsOcrProcessing(false);
-      setOcrProgress(0);
     }
   };
 
@@ -118,7 +42,6 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
     setIsUploading(true);
     setError(null);
     setUploadedFileName(file.name);
-    setUsedOcr(false);
 
     try {
       const formData = new FormData();
@@ -130,33 +53,28 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
 
       if (fnError) throw fnError;
 
-      // Check if OCR is needed (garbage text or empty)
-      if (data?.needsOcr || data?.isGarbage || data?.isEmpty || data?.parseError) {
-        console.log('Text extraction failed, running OCR fallback...');
-        
-        try {
-          const pdfData = await file.arrayBuffer();
-          const ocrText = await runOcr(pdfData);
-          
-          if (ocrText && ocrText.length > 20) {
-            onChange(ocrText);
-            setUsedOcr(true);
-            toast({
-              title: 'OCR extraction complete',
-              description: 'Hindi text extracted using OCR. Please review and edit.',
-            });
-            return;
-          }
-        } catch (ocrError) {
-          console.error('OCR failed:', ocrError);
-        }
-        
-        // OCR also failed - show manual paste option
-        const warningText = `⚠️ Text extraction failed — please paste your syllabus manually below.\n\nExample format:\n\nHindi:\nChapter 1 – अपठित गद्यांश\n- गद्यांश पढ़ना\n- प्रश्न उत्तर\n\nEnglish:\nChapter 1 – A Letter to God\n- Reading Comprehension\n- Vocabulary`;
+      // Check if extraction was successful
+      if (data?.needsOcr || data?.isGarbage || data?.isEmpty || data?.parseError || !data?.extractedText) {
+        // Show warning and let user paste manually
+        const warningText = `⚠️ PDF text could not be extracted automatically.
+
+This may be a scanned PDF or contain Hindi text that requires manual input.
+
+Please paste your syllabus below in this format:
+
+Hindi:
+Chapter 1 – अपठित गद्यांश
+- गद्यांश पढ़ना
+- प्रश्न उत्तर
+
+English:
+Chapter 1 – A Letter to God
+- Reading Comprehension
+- Vocabulary`;
         onChange(warningText);
         toast({
-          title: 'PDF text extraction limited',
-          description: 'Please edit the text area to add your syllabus manually.',
+          title: 'Manual input required',
+          description: 'Please paste your syllabus text in the text area below.',
         });
         return;
       }
@@ -169,7 +87,19 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
       });
     } catch (err) {
       console.error('PDF upload error:', err);
-      const warningText = `⚠️ Text extraction failed — please paste your syllabus manually below.\n\nExample format:\n\nHindi:\nChapter 1 – अपठित गद्यांश\n- गद्यांश पढ़ना\n- प्रश्न उत्तर\n\nEnglish:\nChapter 1 – A Letter to God\n- Reading Comprehension\n- Vocabulary`;
+      const warningText = `⚠️ PDF upload failed.
+
+Please paste your syllabus manually in this format:
+
+Hindi:
+Chapter 1 – अपठित गद्यांश
+- गद्यांश पढ़ना
+- प्रश्न उत्तर
+
+English:
+Chapter 1 – A Letter to God
+- Reading Comprehension
+- Vocabulary`;
       onChange(warningText);
       toast({
         title: 'PDF could not be read',
@@ -187,23 +117,10 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
     setUploadedFileName(null);
     onChange('');
     setError(null);
-    setUsedOcr(false);
   };
-
-  const isProcessing = isUploading || isOcrProcessing;
 
   return (
     <div className="space-y-4">
-      {/* OCR Banner */}
-      {usedOcr && (
-        <div className="flex items-center gap-2 p-3 rounded-xl bg-accent/10 border border-accent/30">
-          <Eye className="w-4 h-4 text-accent shrink-0" />
-          <span className="text-sm text-accent font-medium">
-            OCR used to extract Hindi text — please review for accuracy
-          </span>
-        </div>
-      )}
-
       {/* PDF Upload Section */}
       <div className="space-y-3">
         <Label className="text-sm font-medium text-foreground">Upload PDF Syllabus</Label>
@@ -222,13 +139,13 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
             type="button"
             variant="outline"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isProcessing}
+            disabled={isUploading}
             className="h-12 px-6 gap-2"
           >
-            {isProcessing ? (
+            {isUploading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {isOcrProcessing ? `OCR ${ocrProgress}%...` : 'Extracting...'}
+                Extracting text...
               </>
             ) : (
               <>
@@ -238,7 +155,7 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
             )}
           </Button>
 
-          {uploadedFileName && !isProcessing && (
+          {uploadedFileName && !isUploading && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/30">
               <FileText className="w-4 h-4 text-primary" />
               <span className="text-sm text-primary font-medium truncate max-w-[150px]">
@@ -255,7 +172,7 @@ const SyllabusUploader = ({ value, onChange }: SyllabusUploaderProps) => {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          PDF file, max 10MB. Supports Hindi (Devanagari) text via OCR.
+          PDF file, max 10MB. Text-based PDFs work best.
         </p>
       </div>
 
