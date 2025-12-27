@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import SyllabusUploader from '@/components/SyllabusUploader';
+import MultiPDFUploader from '@/components/MultiPDFUploader';
 import { 
   School, Trophy, Plus, X, Clock, FileText, 
   ChevronRight, ChevronLeft, BookOpen, CalendarDays, Loader2, Target
