@@ -526,15 +526,25 @@ const Onboarding = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <SyllabusUploader 
-                value={syllabusText} 
-                onChange={(text) => {
-                  setSyllabusText(text);
-                  if (syllabusError && text.trim()) {
-                    setSyllabusError(null);
-                  }
-                }} 
-              />
+              {/* Multi-PDF uploader (new feature) */}
+<MultiPDFUploader
+  onExtract={(newText) => {
+    setSyllabusText((prev) => prev + "\n" + newText);
+    if (syllabusError) setSyllabusError(null);
+  }}
+/>
+
+{/* Old single PDF uploader — kept for backup */}
+<SyllabusUploader
+  value={syllabusText}
+  onChange={(text) => {
+    setSyllabusText(text);
+    if (syllabusError && text.trim()) {
+      setSyllabusError(null);
+    }
+  }}
+/>
+
               
               {syllabusError && (
                 <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-sm text-destructive">
