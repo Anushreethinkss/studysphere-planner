@@ -528,8 +528,9 @@ const Onboarding = () => {
             <CardContent className="space-y-4">
               {/* Multi-PDF uploader (new feature) */}
 <MultiPDFUploader
-  onExtract={(newText) => {
-    setSyllabusText((prev) => prev + "\n" + newText);
+  onFilesExtracted={(texts: string[]) => {
+    const merged = texts.filter(Boolean).join("\n\n");
+    setSyllabusText(prev => (prev ? prev + "\n\n" + merged : merged));
     if (syllabusError) setSyllabusError(null);
   }}
 />
