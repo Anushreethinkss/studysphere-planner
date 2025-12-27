@@ -165,12 +165,74 @@ const Onboarding = () => {
 
     return parsedSubjects;
   };
+const handleSaveAndContinue = async () => {
+  // basic validation
+  if (!syllabusText.trim()) {
+    setSyllabusError("Please enter a syllabus to continue");
+    return;
+  }
 
-  const handleSaveAndContinue = async () => {
-    if (!syllabusText.trim()) {
-      setSyllabusError('Please enter a syllabus to continue');
-      return;
+  if (!user) {
+    toast({
+      variant: "destructive",
+      title: "Error",
+      description: "You must be logged in to continue.",
+    });
+    return;
+  }
+
+  setSyllabusError(null);
+  setIsLoading(true);
+
+  try {
+    // 1️⃣ Parse syllabus text → subjects + chapters
+    const parsedSubjects = parseSyllabus(syllabusText);
+
+    // 2️⃣ Send to backend AI schedule function
+    const response = await fetch("/.netlify/functions/generateSchedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: syllabusText,
+        examDate: examDate,
+        subjects: parsedSubjects,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to generate schedule");
     }
+
+    // 3️⃣ Save schedule into Supabase DB
+    const { error } = await supabase
+      .from("study_plan")
+      .insert({
+        user_id: user.id,
+        merged_text: syllabusText,
+        exam_date: examDate,
+        subjects_json: parsedSubjects,
+        schedule_json: result.schedule,
+      });
+
+    if (error) throw error;
+
+    // 4️⃣ Redirect to dashboard after success
+    navigate("/dashboard");
+  } catch (error) {
+    console.error(error);
+    toast({
+      variant: "destructive",
+      title: "Error",
+      description: "Schedule generation failed. Try again.",
+    });
+  }
+
+  setIsLoading(false);
+};
+
+  
 
     if (!user) {
       toast({
