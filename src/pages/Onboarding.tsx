@@ -314,7 +314,6 @@ const run = async () => {
           if (topicsToInsert.length > 0) {
             await supabase.from('topics').insert(topicsToInsert);
           }
-        }
 
       toast({
         title: 'Syllabus saved!',
