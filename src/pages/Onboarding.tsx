@@ -11,7 +11,6 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import SyllabusUploader from '@/components/SyllabusUploader';
-import MultiPDFUploader from '@/components/MultiPDFUploader';
 import { 
   School, Trophy, Plus, X, Clock, FileText, 
   ChevronRight, ChevronLeft, BookOpen, CalendarDays, Loader2, Target
@@ -165,150 +164,114 @@ const Onboarding = () => {
 
     return parsedSubjects;
   };
-const handleSaveAndContinue = async () => {
-  // ===== Basic validation =====
-  if (!syllabusText.trim()) {
-    setSyllabusError("Please enter a syllabus to continue");
-    return;
-  }
 
-  if (!user) {
-    toast({
-      variant: "destructive",
-      title: "Error",
-      description: "You must be logged in to continue.",
-    });
-    return;
-  }
-
-  setSyllabusError(null);
-  setIsLoading(true);
-
-  try {
-    // ===== 1️⃣ Parse syllabus =====
-    const parsedSubjects = parseSyllabus(syllabusText);
-
-    if (
-      parsedSubjects.length === 0 ||
-      parsedSubjects.every(s => s.chapters.length === 0)
-    ) {
-      setSyllabusError(
-        'Could not parse syllabus. Use "Subject:" for subjects, "Chapter" for chapters, and "-" for topics.'
-      );
+  const handleSaveAndContinue = async () => {
+    if (!syllabusText.trim()) {
+      setSyllabusError('Please enter a syllabus to continue');
       return;
     }
 
-    // ===== 2️⃣ Generate AI schedule =====
-    const response = await fetch("/.netlify/functions/generateSchedule", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: syllabusText,
-        examDate,
-        subjects: parsedSubjects,
-      }),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || "Failed to generate schedule");
+    if (!user) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'You must be logged in to continue.',
+      });
+      return;
     }
 
-    // ===== 3️⃣ Save study plan =====
-    const { error: planError } = await supabase.from("study_plan").insert({
-      user_id: user.id,
-      merged_text: syllabusText,
-      exam_date: examDate,
-      subjects_json: parsedSubjects,
-      schedule_json: result.schedule,
-    });
+    setSyllabusError(null);
+    setIsLoading(true);
 
-    if (planError) throw planError;
+    try {
+      const parsedSubjects = parseSyllabus(syllabusText);
+      
+      if (parsedSubjects.length === 0 || parsedSubjects.every(s => s.chapters.length === 0)) {
+        setSyllabusError('Could not parse syllabus. Use "Subject:" for subjects, "Chapter" for chapters, and "-" for topics.');
+        setIsLoading(false);
+        return;
+      }
 
-    // ===== 4️⃣ Update profile =====
-    await supabase
-      .from("profiles")
-      .update({
-        prep_type: prepType,
-        board: board || null,
-        daily_study_hours: dailyHours,
-        exam_date: examDate || null,
-        onboarding_completed: true,
-      })
-      .eq("user_id", user.id);
-
-    // ===== 5️⃣ Save subjects / chapters / topics =====
-    for (const parsedSubject of parsedSubjects) {
-      if (parsedSubject.chapters.length === 0) continue;
-
-      const difficultyEntry = subjectDifficulties.find(
-        d => d.name === parsedSubject.name
-      );
-      const difficulty = difficultyEntry?.difficulty || "medium";
-
-      const { data: subjectData, error: subjectError } = await supabase
-        .from("subjects")
-        .insert({
-          user_id: user.id,
-          name: parsedSubject.name,
-          color: parsedSubject.color,
-          difficulty,
+      // Update profile
+      await supabase
+        .from('profiles')
+        .update({
+          prep_type: prepType,
+          board: board || null,
+          daily_study_hours: dailyHours,
+          exam_date: examDate || null,
+          onboarding_completed: true,
         })
-        .select()
-        .single();
+        .eq('user_id', user.id);
 
-      if (subjectError) throw subjectError;
-
-      for (let chapterIndex = 0; chapterIndex < parsedSubject.chapters.length; chapterIndex++) {
-        const chapter = parsedSubject.chapters[chapterIndex];
-
-        const { data: chapterData, error: chapterError } = await supabase
-          .from("chapters")
+      // Create subjects, chapters, topics from parsed structure
+      for (const parsedSubject of parsedSubjects) {
+        if (parsedSubject.chapters.length === 0) continue;
+        
+        // Find the difficulty for this subject
+        const difficultyEntry = subjectDifficulties.find(d => d.name === parsedSubject.name);
+        const difficulty = difficultyEntry?.difficulty || 'medium';
+        
+        const { data: subjectData, error: subjectError } = await supabase
+          .from('subjects')
           .insert({
             user_id: user.id,
-            subject_id: subjectData.id,
-            name: chapter.name,
-            order_index: chapterIndex,
+            name: parsedSubject.name,
+            color: parsedSubject.color,
+            difficulty: difficulty,
           })
           .select()
           .single();
 
-        if (chapterError) throw chapterError;
+        if (subjectError) throw subjectError;
 
-        const topicsToInsert = chapter.topics.map((topic, topicIndex) => ({
-          user_id: user.id,
-          chapter_id: chapterData.id,
-          name: topic,
-          order_index: topicIndex,
-          status: "pending" as const,
-        }));
+        for (let chapterIndex = 0; chapterIndex < parsedSubject.chapters.length; chapterIndex++) {
+          const chapter = parsedSubject.chapters[chapterIndex];
+          
+          const { data: chapterData, error: chapterError } = await supabase
+            .from('chapters')
+            .insert({
+              user_id: user.id,
+              subject_id: subjectData.id,
+              name: chapter.name,
+              order_index: chapterIndex,
+            })
+            .select()
+            .single();
 
-        if (topicsToInsert.length > 0) {
-          await supabase.from("topics").insert(topicsToInsert);
+          if (chapterError) throw chapterError;
+
+          const topicsToInsert = chapter.topics.map((topic, topicIndex) => ({
+            user_id: user.id,
+            chapter_id: chapterData.id,
+            name: topic,
+            order_index: topicIndex,
+            status: 'pending' as const,
+          }));
+
+          if (topicsToInsert.length > 0) {
+            await supabase.from('topics').insert(topicsToInsert);
+          }
         }
       }
+
+      toast({
+        title: 'Syllabus saved!',
+        description: `Created ${parsedSubjects.length} subject(s) with your study plan.`,
+      });
+      
+      navigate('/plan');
+    } catch (error) {
+      console.error('Error saving syllabus:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to save syllabus. Please try again.',
+      });
+    } finally {
+      setIsLoading(false);
     }
-
-    // ===== 6️⃣ Success =====
-    toast({
-      title: "Syllabus saved!",
-      description: `Created ${parsedSubjects.length} subject(s) with your study plan.`,
-    });
-
-    navigate("/plan");
-  } catch (error) {
-    console.error(error);
-    toast({
-      variant: "destructive",
-      title: "Error",
-      description: "Something went wrong. Please try again.",
-    });
-  } finally {
-    setIsLoading(false);
-  }
-};
-
+  };
 
   const totalSteps = 6;
   const progress = (step / totalSteps) * 100;
@@ -562,26 +525,15 @@ const handleSaveAndContinue = async () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Multi-PDF uploader (new feature) */}
-<MultiPDFUploader
-  onFilesExtracted={(texts: string[]) => {
-    const merged = texts.filter(Boolean).join("\n\n");
-    setSyllabusText(prev => (prev ? prev + "\n\n" + merged : merged));
-    if (syllabusError) setSyllabusError(null);
-  }}
-/>
-
-{/* Old single PDF uploader — kept for backup */}
-<SyllabusUploader
-  value={syllabusText}
-  onChange={(text) => {
-    setSyllabusText(text);
-    if (syllabusError && text.trim()) {
-      setSyllabusError(null);
-    }
-  }}
-/>
-
+              <SyllabusUploader 
+                value={syllabusText} 
+                onChange={(text) => {
+                  setSyllabusText(text);
+                  if (syllabusError && text.trim()) {
+                    setSyllabusError(null);
+                  }
+                }} 
+              />
               
               {syllabusError && (
                 <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-sm text-destructive">
