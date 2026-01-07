@@ -183,6 +183,7 @@ const handleSaveAndContinue = async () => {
 
   setSyllabusError(null);
   setIsLoading(true);
+const run = async () => {
 
   try {
     // 1️⃣ Parse syllabus text → subjects + chapters
@@ -230,7 +231,7 @@ const handleSaveAndContinue = async () => {
   }
 
   setIsLoading(false);
-};
+
 
   
 
@@ -241,7 +242,7 @@ const handleSaveAndContinue = async () => {
         description: 'You must be logged in to continue.',
       });
       return;
-
+    }
     setSyllabusError(null);
     setIsLoading(true);
 
@@ -254,8 +255,8 @@ const handleSaveAndContinue = async () => {
         return;
 
       // Update profile
-      await supabase
-        .from('profiles')
+    await supabase
+        .from('profiles') 
         .update({
           prep_type: prepType,
           board: board || null,
