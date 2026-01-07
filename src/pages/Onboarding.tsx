@@ -241,7 +241,6 @@ const handleSaveAndContinue = async () => {
         description: 'You must be logged in to continue.',
       });
       return;
-    }
 
     setSyllabusError(null);
     setIsLoading(true);
