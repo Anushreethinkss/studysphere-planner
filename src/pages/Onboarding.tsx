@@ -253,7 +253,6 @@ const handleSaveAndContinue = async () => {
         setSyllabusError('Could not parse syllabus. Use "Subject:" for subjects, "Chapter" for chapters, and "-" for topics.');
         setIsLoading(false);
         return;
-      }
 
       // Update profile
       await supabase
@@ -316,7 +315,6 @@ const handleSaveAndContinue = async () => {
             await supabase.from('topics').insert(topicsToInsert);
           }
         }
-      }
 
       toast({
         title: 'Syllabus saved!',
